@@ -71,3 +71,8 @@ h1 {
 .character-box p {
   margin: 5px 0; /* 위아래 여백 */
 }
+
+.notification {
+  text-align: center;
+  color: #8d9094;
+}

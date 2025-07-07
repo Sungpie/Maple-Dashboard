@@ -231,3 +231,8 @@ h2 {
 .potential-text.legendary {
   color: #8bc34a;
 }
+
+.notification {
+  text-align: center;
+  color: #8d9094;
+}
