@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>캐릭터 상세 정보</title>
+    <link rel="stylesheet" href="css/detail.css" />
+  </head>
+  <body>
+    <h1>캐릭터 상세 정보</h1>
+    <div id="detail-result">
+      <p>상세 정보를 불러오는 중입니다...</p>
+    </div>
+
+    <script src="config.js"></script>
+    <script>
+      window.onload = async function () {
+        // 1. URL에서 캐릭터 이름 가져오기
+        const urlParams = new URLSearchParams(window.location.search);
+        const characterName = urlParams.get("characterName");
+        const apiKey = API_KEY; // 본인의 API 키를 입력해주세요.
+
+        if (characterName) {
+          document.title = `${characterName} - 상세 정보`; // 페이지 제목 변경
+
+          // 2. 어제 날짜 구하기
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+          const dateString = yesterday.toISOString().split("T")[0];
+
+          // 3. OCID 조회
+          const myHeaders = new Headers();
+          myHeaders.append("x-nxopen-api-key", apiKey);
+
+          const ocidResponse = await fetch(
+            `https://open.api.nexon.com/maplestory/v1/id?character_name=${characterName}`,
+            { headers: myHeaders }
+          );
+          const ocidData = await ocidResponse.json();
+          const ocid = ocidData.ocid;
+
+          if (!ocid) {
+            document.getElementById(
+              "detail-result"
+            ).innerHTML = `<p style="color: red;">'${characterName}'님을 찾을 수 없습니다.</p>`;
+            return;
+          }
+
+          // 4. 상세 정보 API 호출 (예: 종합 능력치, 장착 장비 정보)
+          const statResponse = await fetch(
+            `https://open.api.nexon.com/maplestory/v1/character/stat?ocid=${ocid}&date=${dateString}`,
+            { headers: myHeaders }
+          );
+          const statData = await statResponse.json();
+
+          const itemResponse = await fetch(
+            `https://open.api.nexon.com/maplestory/v1/character/item-equipment?ocid=${ocid}&date=${dateString}`,
+            { headers: myHeaders }
+          );
+          const itemData = await itemResponse.json();
+
+          // 5. 화면에 정보 표시하기
+          displayCharacterDetails(statData, itemData);
+        } else {
+          document.getElementById("detail-result").innerHTML =
+            "<p>표시할 캐릭터 정보가 없습니다.</p>";
+        }
+      };
+
+      function displayCharacterDetails(statData, itemData) {
+        const resultDiv = document.getElementById("detail-result");
+        let statHtml = '<h2>종합 능력치</h2><div class="stat-grid">';
+
+        if (statData && statData.final_stat) {
+          statData.final_stat.forEach((stat) => {
+            statHtml += `<div><strong>${stat.stat_name}:</strong> ${parseInt(
+              stat.stat_value
+            ).toLocaleString()}</div>`;
+          });
+        } else {
+          statHtml += "<p>능력치 정보를 불러오지 못했습니다.</p>";
+        }
+        statHtml += "</div>";
+
+        let itemHtml = '<h2>장착 장비</h2><div class="item-grid">';
+        if (itemData && itemData.item_equipment) {
+          itemData.item_equipment.forEach((item) => {
+            itemHtml += `
+                        <div class="item-box">
+                            <img src="${item.item_icon}" alt="${item.item_name}">
+                            <p>${item.item_name} (${item.item_equipment_slot})</p>
+                        </div>
+                    `;
+          });
+        } else {
+          itemHtml += "<p>장비 정보를 불러오지 못했습니다.</p>";
+        }
+        itemHtml += "</div>";
+
+        resultDiv.innerHTML = statHtml + itemHtml;
+      }
+    </script>
+  </body>
+</html>

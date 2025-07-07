@@ -1,0 +1,66 @@
+/* css/detail.css */
+body {
+  font-family: "Malgun Gothic", sans-serif;
+  background-color: #f4f7f6;
+  color: #333;
+  margin: 0;
+  padding: 20px;
+}
+
+h1,
+h2 {
+  color: #2c3e50;
+  text-align: center;
+  border-bottom: 2px solid #e0e0e0;
+  padding-bottom: 10px;
+  margin-bottom: 20px;
+}
+
+#detail-result {
+  max-width: 900px;
+  margin: 0 auto;
+  background-color: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* 능력치 정보를 그리드 형태로 표시 */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 10px;
+  margin-bottom: 30px;
+}
+
+.stat-grid div {
+  background-color: #f9f9f9;
+  padding: 10px;
+  border-radius: 5px;
+  border-left: 4px solid #3498db;
+}
+
+/* 장비 정보를 그리드 형태로 표시 */
+.item-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 15px;
+  text-align: center;
+}
+
+.item-box {
+  background-color: #f9f9f9;
+  padding: 10px;
+  border-radius: 5px;
+}
+
+.item-box img {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 5px;
+}
+
+.item-box p {
+  font-size: 12px;
+  margin: 0;
+}
