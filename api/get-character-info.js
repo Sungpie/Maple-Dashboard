@@ -1,63 +1,80 @@
 // api/get-character-info.js
 
+// Vercel 환경에서는 require를 사용할 수 있습니다.
+const https = require("https");
+
 export default async function handler(request, response) {
-  // 1. 클라이언트(브라우저)가 요청한 캐릭터 이름 가져오기
-  const { searchParams } = new URL(request.url);
-  const characterName = searchParams.get("characterName");
+  // ✨ [핵심 수정] Vercel 환경에서 URL 파라미터를 가져오는 더 안정적인 방법
+  const characterName = request.query.characterName;
 
   if (!characterName) {
     return response.status(400).json({ error: "캐릭터 이름이 필요합니다." });
   }
 
-  // 2. Vercel에 안전하게 저장된 API 키 가져오기
+  // Vercel에 안전하게 저장된 API 키 가져오기
   const apiKey = process.env.NEXON_API_KEY;
 
-  const myHeaders = new Headers();
-  myHeaders.append("x-nxopen-api-key", apiKey);
+  const myHeaders = {
+    "x-nxopen-api-key": apiKey,
+  };
 
   try {
-    // 3. 어제 날짜 계산
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const dateString = yesterday.toISOString().split("T")[0];
 
-    // 4. 넥슨 서버에 OCID 요청
-    const ocidResponse = await fetch(
-      `https://open.api.nexon.com/maplestory/v1/id?character_name=${characterName}`,
-      { headers: myHeaders }
+    // --- 넥슨 서버에 요청을 보내는 부분을 https 모듈로 변경하여 안정성 확보 ---
+    const getNexonData = (path) => {
+      return new Promise((resolve, reject) => {
+        const options = {
+          hostname: "open.api.nexon.com",
+          path: path,
+          method: "GET",
+          headers: myHeaders,
+        };
+        const req = https.request(options, (res) => {
+          let data = "";
+          res.on("data", (chunk) => (data += chunk));
+          res.on("end", () => resolve(JSON.parse(data)));
+        });
+        req.on("error", (error) => reject(error));
+        req.end();
+      });
+    };
+
+    // OCID 조회
+    const ocidData = await getNexonData(
+      `/maplestory/v1/id?character_name=${encodeURIComponent(characterName)}`
     );
-    if (!ocidResponse.ok) throw new Error("OCID 조회 실패");
-    const ocidData = await ocidResponse.json();
     const ocid = ocidData.ocid;
 
     if (!ocid) {
       return response.status(404).json({ error: "캐릭터를 찾을 수 없습니다." });
     }
 
-    // 5. 필요한 모든 정보를 동시에 요청
+    // 필요한 모든 정보를 동시에 요청
     const [basicData, statData, itemData] = await Promise.all([
-      fetch(
-        `https://open.api.nexon.com/maplestory/v1/character/basic?ocid=${ocid}&date=${dateString}`,
-        { headers: myHeaders }
-      ).then((res) => res.json()),
-      fetch(
-        `https://open.api.nexon.com/maplestory/v1/character/stat?ocid=${ocid}&date=${dateString}`,
-        { headers: myHeaders }
-      ).then((res) => res.json()),
-      fetch(
-        `https://open.api.nexon.com/maplestory/v1/character/item-equipment?ocid=${ocid}&date=${dateString}`,
-        { headers: myHeaders }
-      ).then((res) => res.json()),
+      getNexonData(
+        `/maplestory/v1/character/basic?ocid=${ocid}&date=${dateString}`
+      ),
+      getNexonData(
+        `/maplestory/v1/character/stat?ocid=${ocid}&date=${dateString}`
+      ),
+      getNexonData(
+        `/maplestory/v1/character/item-equipment?ocid=${ocid}&date=${dateString}`
+      ),
     ]);
 
-    // 6. 모든 정보를 합쳐서 클라이언트에게 전달
+    // 모든 정보를 합쳐서 클라이언트에게 전달
     response.status(200).json({
       basicData,
       statData,
       itemData,
     });
   } catch (error) {
-    console.error(error);
-    response.status(500).json({ error: "서버에서 오류가 발생했습니다." });
+    console.error("서버리스 함수 오류:", error);
+    response
+      .status(500)
+      .json({ error: "서버에서 오류가 발생했습니다.", message: error.message });
   }
 }
