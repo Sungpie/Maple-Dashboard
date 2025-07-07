@@ -7,15 +7,88 @@ body {
   padding: 20px;
 }
 
-h1,
 h2 {
   color: #2c3e50;
   text-align: center;
   border-bottom: 2px solid #e0e0e0;
   padding-bottom: 10px;
   margin-bottom: 20px;
+  font-size: 2em;
 }
 
+/* --- 캐릭터 프로필 & 홈 버튼 --- */
+#character-profile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  max-width: 900px;
+  margin: 0 auto 30px auto;
+  background-color: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.profile-image-container {
+  width: 200px;
+  height: 220px;
+  overflow: hidden;
+  margin-right: 20px;
+  flex-shrink: 0;
+}
+
+.profile-image {
+  width: 250px;
+  margin-left: -25px;
+  margin-top: -10px;
+}
+
+.profile-info {
+  font-size: 16px;
+}
+
+.profile-name {
+  font-size: 28px;
+  font-weight: bold;
+  color: #2c3e50;
+  margin: 0 0 10px 0;
+}
+
+.profile-level {
+  font-size: 18px;
+  color: #555;
+  margin: 0 0 15px 0;
+}
+
+.profile-power {
+  font-size: 20px;
+  color: #333;
+  font-weight: 500;
+  margin: 0;
+}
+
+.home-button {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background-color: #3498db;
+  color: white;
+  padding: 10px 20px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: bold;
+  font-size: 16px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  transition: background-color 0.2s, transform 0.2s;
+  z-index: 200;
+}
+
+.home-button:hover {
+  background-color: #2980b9;
+  transform: translateY(-2px);
+}
+
+/* --- 아이템 및 툴팁 --- */
 #detail-result {
   max-width: 900px;
   margin: 0 auto;
@@ -25,22 +98,6 @@ h2 {
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
 }
 
-/* 능력치 정보를 그리드 형태로 표시 */
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 10px;
-  margin-bottom: 30px;
-}
-
-.stat-grid div {
-  background-color: #f9f9f9;
-  padding: 10px;
-  border-radius: 5px;
-  border-left: 4px solid #3498db;
-}
-
-/* 장비 정보를 그리드 형태로 표시 */
 .item-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
@@ -63,4 +120,114 @@ h2 {
 .item-box p {
   font-size: 12px;
   margin: 0;
+}
+
+#item-tooltip {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  background-color: #2d2d2d;
+  color: white;
+  padding: 10px;
+  border: 2px solid #a0a0a0;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: "Malgun Gothic", sans-serif;
+  z-index: 100;
+  transition: opacity 0.1s, visibility 0.1s;
+  width: 280px;
+  pointer-events: none;
+  text-align: left;
+}
+
+#item-tooltip p {
+  margin: 3px 0;
+}
+
+#item-tooltip hr {
+  border: none;
+  border-top: 1px solid #777;
+  margin: 8px 0;
+}
+
+#item-tooltip .starforce {
+  text-align: center;
+  color: #fdd835;
+  letter-spacing: 1px;
+  font-size: 16px;
+  margin-bottom: 8px;
+  line-height: 1.2;
+}
+
+#item-tooltip .item-name {
+  font-weight: bold;
+  text-align: center;
+  font-size: 16px;
+}
+
+#item-tooltip .item-grade {
+  text-align: center;
+  font-size: 13px;
+  color: #aaa;
+  margin-top: 4px;
+}
+
+#item-tooltip .item-icon-container {
+  text-align: center;
+  margin: 10px 0;
+}
+
+/* 스탯 색상 */
+#item-tooltip .add-opt {
+  color: #4fc3f7;
+} /* 추가옵션 */
+#item-tooltip .star-opt {
+  color: #ffb74d;
+} /* 스타포스 */
+#item-tooltip .etc-opt {
+  color: #b39ddb;
+} /* 주문서 */
+#item-tooltip .flame-opt {
+  color: #a5d6a7;
+} /* 환생의 불꽃 */
+
+/* 잠재능력 등급별 스타일 */
+#item-tooltip .potential-prefix {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  line-height: 18px;
+  text-align: center;
+  font-weight: bold;
+  color: white;
+  border: 1px solid #aaa;
+  margin-right: 5px;
+  border-radius: 4px;
+}
+
+#item-tooltip .potential-prefix.rare {
+  background-color: #29b6f6;
+}
+#item-tooltip .potential-prefix.epic {
+  background-color: #ab47bc;
+}
+#item-tooltip .potential-prefix.unique {
+  background-color: #ffc107;
+}
+#item-tooltip .potential-prefix.legendary {
+  background-color: #4caf50;
+}
+
+/* 잠재옵션 등급별 텍스트 색상 */
+.potential-text.rare {
+  color: #29b6f6;
+}
+.potential-text.epic {
+  color: #ab47bc;
+}
+.potential-text.unique {
+  color: #ffc107;
+}
+.potential-text.legendary {
+  color: #8bc34a;
 }

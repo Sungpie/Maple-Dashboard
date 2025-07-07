@@ -2,11 +2,11 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <title>계남 메이플 원정대</title>
+    <title>메이플 원정대</title>
     <link rel="stylesheet" href="css/main.css" />
   </head>
   <body>
-    <h1>계남 메이플 원정대</h1>
+    <h1>우리만의 메이플</h1>
     <hr />
     <div id="result"></div>
 
@@ -27,11 +27,12 @@
 
         const ocidResponse = await fetch(
           `https://open.api.nexon.com/maplestory/v1/id?character_name=${characterName}`,
-          {
-            method: "GET",
-            headers: myHeaders,
-          }
+          { method: "GET", headers: myHeaders }
         );
+
+        if (!ocidResponse.ok) {
+          return { error: `'${characterName}' 님의 OCID 조회에 실패했습니다.` };
+        }
         const ocidData = await ocidResponse.json();
         const ocid = ocidData.ocid;
 
@@ -39,18 +40,22 @@
           return { error: `'${characterName}' 님을 찾을 수 없습니다.` };
         }
 
-        const infoResponse = await fetch(
-          `https://open.api.nexon.com/maplestory/v1/character/basic?ocid=${ocid}&date=${date}`,
-          {
-            method: "GET",
-            headers: myHeaders,
-          }
-        );
-        return await infoResponse.json();
+        const [basicData, statData] = await Promise.all([
+          fetch(
+            `https://open.api.nexon.com/maplestory/v1/character/basic?ocid=${ocid}&date=${date}`,
+            { headers: myHeaders }
+          ).then((res) => res.json()),
+          fetch(
+            `https://open.api.nexon.com/maplestory/v1/character/stat?ocid=${ocid}&date=${date}`,
+            { headers: myHeaders }
+          ).then((res) => res.json()),
+        ]);
+
+        return { basicData, statData };
       }
 
       async function getAllCharacterInfo(names) {
-        const apiKey = API_KEY; // 본인의 API 키를 입력해주세요.
+        const apiKey = API_KEY;
         const resultDiv = document.getElementById("result");
         resultDiv.innerHTML =
           "<p>캐릭터 정보를 안정적으로 불러오는 중입니다...</p>";
@@ -59,30 +64,61 @@
         yesterday.setDate(yesterday.getDate() - 1);
         const dateString = yesterday.toISOString().split("T")[0];
 
-        let finalHtml = "";
+        // ✨ 1. 모든 캐릭터 정보를 저장할 새로운 배열 생성
+        const charactersData = [];
 
         for (const name of names) {
-          await sleep(500);
-          const infoData = await getCharacterInfo(name, apiKey, dateString);
+          await sleep(1000);
+          const info = await getCharacterInfo(name, apiKey, dateString);
 
-          if (infoData.error) {
-            finalHtml += `<p style="color: red;">${infoData.error}</p>`;
-          } else {
-            // ✨ 이 부분이 핵심적인 변경사항입니다!
-            // 각 캐릭터 정보를 a 태그로 감싸고, 클릭 시 detail.html로 캐릭터 이름을 전달합니다.
-            finalHtml += `
-              <a href="detail.html?characterName=${infoData.character_name}" style="text-decoration: none; color: inherit;">
+          if (info.error) {
+            console.error(info.error); // 에러는 콘솔에 표시
+            continue; // 에러 발생 시 다음 캐릭터로 넘어감
+          }
+
+          if (info.basicData && info.basicData.character_name) {
+            let combatPower = 0; // 정렬을 위해 숫자로 저장
+            if (info.statData && info.statData.final_stat) {
+              const combatPowerStat = info.statData.final_stat.find(
+                (stat) => stat.stat_name === "전투력"
+              );
+              if (combatPowerStat) {
+                combatPower = parseInt(combatPowerStat.stat_value);
+              }
+            }
+            // ✨ 2. 캐릭터 정보와 전투력을 객체 형태로 배열에 추가
+            charactersData.push({
+              name: info.basicData.character_name,
+              level: info.basicData.character_level,
+              class: info.basicData.character_class,
+              server: info.basicData.world_name,
+              image: info.basicData.character_image,
+              combatPower: combatPower,
+            });
+          }
+        }
+
+        // ✨ 3. 전투력을 기준으로 내림차순 정렬 (높은 순 -> 낮은 순)
+        charactersData.sort((a, b) => b.combatPower - a.combatPower);
+
+        // ✨ 4. 정렬된 데이터를 기반으로 최종 HTML 생성
+        let finalHtml = "";
+        for (const char of charactersData) {
+          finalHtml += `
+              <a href="detail.html?characterName=${
+                char.name
+              }" style="text-decoration: none; color: inherit;">
                 <div class="character-box">
-                    <img src="${infoData.character_image}" alt="캐릭터 이미지">
-                    <p><strong>캐릭터 이름:</strong> ${infoData.character_name}</p>
-                    <p><strong>레벨:</strong> ${infoData.character_level}</p>
-                    <p><strong>직업:</strong> ${infoData.character_class}</p>
-                    <p><strong>서버:</strong> ${infoData.world_name}</p>
+                    <img src="${char.image}" alt="캐릭터 이미지">
+                    <p><strong>캐릭터 이름:</strong> ${char.name}</p>
+                    <p><strong>레벨:</strong> ${char.level} | ${char.class}</p>
+                    <p><strong>서버:</strong> ${char.server}</p>
+                    <p><strong>전투력:</strong> ${char.combatPower.toLocaleString()}</p>
                 </div>
               </a>
             `;
-          }
         }
+
         resultDiv.innerHTML = finalHtml;
       }
     </script>
