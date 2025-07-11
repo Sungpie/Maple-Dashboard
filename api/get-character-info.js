@@ -1,6 +1,6 @@
-const https = require("https"); // ✨ [오류 수정] 따옴표 오타를 수정했습니다.
+const https = require("https");
 
-// 넥슨 서버에 안전하게 데이터를 요청하는 함수
+// 넥슨 서버에 안전하게 데이터를 요청하는 함수 (이전과 동일)
 function nexonApiRequest(path, apiKey) {
   return new Promise((resolve, reject) => {
     const options = {
@@ -11,21 +11,13 @@ function nexonApiRequest(path, apiKey) {
     };
     const req = https.request(options, (res) => {
       if (res.statusCode < 200 || res.statusCode >= 300) {
-        // API 서버가 에러 코드를 보냈을 때
         return reject(
           new Error(`Nexon API Error: Status Code ${res.statusCode}`)
         );
       }
       let data = "";
       res.on("data", (chunk) => (data += chunk));
-      res.on("end", () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch (e) {
-          // 응답이 JSON 형식이 아닐 때
-          reject(new Error("Failed to parse Nexon API response."));
-        }
-      });
+      res.on("end", () => resolve(JSON.parse(data)));
     });
     req.on("error", (e) =>
       reject(new Error(`Network request failed: ${e.message}`))
@@ -61,7 +53,7 @@ export default async function handler(request, response) {
       return response.status(404).json({ error: "캐릭터를 찾을 수 없습니다." });
     }
 
-    // 2. 프리셋별 능력치 정보를 동시에 요청
+    // ✨ [핵심 로직] 2. 프리셋별 능력치 정보를 동시에 요청 (최대 3개 프리셋)
     const presetStatPromises = [
       nexonApiRequest(
         `/maplestory/v1/character/stat?ocid=${ocid}&date=${dateString}&preset_no=1`,
@@ -87,7 +79,7 @@ export default async function handler(request, response) {
       apiKey
     );
 
-    // 3. 모든 프리셋의 스탯 정보와 기타 정보를 한꺼번에 받음
+    // ✨ 3. 모든 프리셋의 스탯 정보와 기타 정보를 한꺼번에 받음
     const [preset1Stat, preset2Stat, preset3Stat, itemData, basicData] =
       await Promise.all([
         ...presetStatPromises,
@@ -95,7 +87,7 @@ export default async function handler(request, response) {
         basicDataPromise,
       ]);
 
-    // 4. 각 프리셋의 전투력을 찾아 배열에 담기
+    // ✨ 4. 각 프리셋의 전투력을 찾아 배열에 담기
     const combatPowers = [preset1Stat, preset2Stat, preset3Stat].map(
       (statData) => {
         if (statData && statData.final_stat) {
@@ -108,11 +100,14 @@ export default async function handler(request, response) {
       }
     );
 
-    // 5. 가장 높은 전투력을 '최고 전투력'으로 확정
+    // ✨ 5. 가장 높은 전투력을 '최고 전투력'으로 확정
     const maxCombatPower = Math.max(...combatPowers);
 
-    // 현재 장착 프리셋의 능력치 정보 (메인 페이지 보여주기용)
-    const currentStatData = preset1Stat; // 1번 프리셋을 현재 스탯으로 간주
+    // 현재 장착 프리셋의 능력치 정보 (보여주기용)
+    const currentStatData = await nexonApiRequest(
+      `/maplestory/v1/character/stat?ocid=${ocid}&date=${dateString}`,
+      apiKey
+    );
 
     // 6. 최종적으로 모든 정보를 합쳐서 클라이언트에게 전달
     response.status(200).json({
