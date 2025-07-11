@@ -1,5 +1,6 @@
 const https = require("https");
 
+// 넥슨 서버에 안전하게 데이터를 요청하는 함수
 function nexonApiRequest(path, apiKey) {
   return new Promise((resolve) => {
     const options = {
@@ -15,61 +16,72 @@ function nexonApiRequest(path, apiKey) {
         try {
           resolve(JSON.parse(data));
         } catch (e) {
-          resolve(null);
+          resolve(null); // 파싱 실패 시 null
         }
       });
     });
-    req.on("error", () => resolve(null));
+    req.on("error", () => resolve(null)); // 네트워크 에러 시 null
     req.end();
   });
 }
 
+// 메인 로직 핸들러
 export default async function handler(request, response) {
   try {
     const characterName = request.query.characterName;
-    if (!characterName)
+    if (!characterName) {
       return response.status(400).json({ error: "캐릭터 이름이 필요합니다." });
+    }
 
     const apiKey = process.env.NEXON_API_KEY;
-    if (!apiKey) throw new Error("API 키가 서버에 설정되지 않았습니다.");
+    if (!apiKey) {
+      throw new Error("API 키가 서버에 설정되지 않았습니다.");
+    }
 
     const ocidData = await nexonApiRequest(
       `/maplestory/v1/id?character_name=${encodeURIComponent(characterName)}`,
       apiKey
     );
-    if (!ocidData || ocidData.error)
+    if (!ocidData || ocidData.error) {
       return response
         .status(404)
         .json({ error: "캐릭터 OCID를 찾을 수 없습니다." });
+    }
     const ocid = ocidData.ocid;
 
-    const results = await Promise.allSettled(
-      [
-        nexonApiRequest(`/maplestory/v1/character/basic?ocid=${ocid}`),
-        nexonApiRequest(`/maplestory/v1/character/hyper-stat?ocid=${ocid}`),
-        nexonApiRequest(`/maplestory/v1/character/ability?ocid=${ocid}`),
-        nexonApiRequest(
-          `/maplestory/v1/character/stat?ocid=${ocid}&preset_no=1`
-        ),
-        nexonApiRequest(
-          `/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=1`
-        ),
-        nexonApiRequest(
-          `/maplestory/v1/character/stat?ocid=${ocid}&preset_no=2`
-        ),
-        nexonApiRequest(
-          `/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=2`
-        ),
-        nexonApiRequest(
-          `/maplestory/v1/character/stat?ocid=${ocid}&preset_no=3`
-        ),
-        nexonApiRequest(
-          `/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=3`
-        ),
-      ].map((promise) =>
-        promise.then((res) => nexonApiRequest(res.path, apiKey))
-      )
-    );
+    // ✨ [핵심 수정] 모든 API 요청을 가장 단순하고 명확한 방식으로 다시 작성
+    const results = await Promise.allSettled([
+      nexonApiRequest(`/maplestory/v1/character/basic?ocid=${ocid}`, apiKey),
+      nexonApiRequest(
+        `/maplestory/v1/character/hyper-stat?ocid=${ocid}`,
+        apiKey
+      ),
+      nexonApiRequest(`/maplestory/v1/character/ability?ocid=${ocid}`, apiKey),
+      nexonApiRequest(
+        `/maplestory/v1/character/stat?ocid=${ocid}&preset_no=1`,
+        apiKey
+      ),
+      nexonApiRequest(
+        `/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=1`,
+        apiKey
+      ),
+      nexonApiRequest(
+        `/maplestory/v1/character/stat?ocid=${ocid}&preset_no=2`,
+        apiKey
+      ),
+      nexonApiRequest(
+        `/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=2`,
+        apiKey
+      ),
+      nexonApiRequest(
+        `/maplestory/v1/character/stat?ocid=${ocid}&preset_no=3`,
+        apiKey
+      ),
+      nexonApiRequest(
+        `/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=3`,
+        apiKey
+      ),
+    ]);
 
     const getValue = (result) =>
       result.status === "fulfilled" ? result.value : null;
@@ -88,8 +100,9 @@ export default async function handler(request, response) {
       getValue(results[8]),
     ];
 
-    if (!basicData)
+    if (!basicData) {
       throw new Error("캐릭터의 필수 기본 정보를 불러오지 못했습니다.");
+    }
 
     const presetScores = [1, 2, 3].map((presetNo) => {
       const index = presetNo - 1;
@@ -104,9 +117,7 @@ export default async function handler(request, response) {
         ? parseInt(combatPowerStat.stat_value, 10)
         : 0;
 
-      // ✨ [핵심 수정] stats와 items 객체가 유효할 때만 점수 계산을 시도합니다.
       if (stats && items && items.item_equipment) {
-        // 어빌리티 점수
         abilityData?.ability_info?.forEach((ability) => {
           if (ability.ability_value.includes("보스 몬스터 공격 시 데미지"))
             score += 10;
@@ -117,13 +128,11 @@ export default async function handler(request, response) {
             score -= 10;
         });
 
-        // 하이퍼스탯 점수
         const hyperStatIED = hyperStatData?.hyper_stat_preset_1?.find(
           (s) => s.stat_type === "방어율 무시"
         );
         if (hyperStatIED && parseInt(hyperStatIED.stat_level) > 0) score += 5;
 
-        // 아이템 점수
         const hasSeedRing = items.item_equipment.some((item) =>
           item.item_name.includes("링")
         );
