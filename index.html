@@ -42,8 +42,8 @@
         const charactersData = [];
 
         for (const name of names) {
-          await sleep(200); // 서버리스 함수는 더 빠르게 호출 가능
-          const info = await getCharacterInfo(name);
+          await sleep(200);
+          const info = await getCharacterInfo(name); // 'getCharacterInfo' 함수는 수정할 필요 없음
 
           if (info.error) {
             console.error(info.error);
@@ -51,23 +51,26 @@
           }
 
           if (info.basicData && info.basicData.character_name) {
-            let combatPower = 0;
-            if (info.statData && info.statData.final_stat) {
-              const combatPowerStat = info.statData.final_stat.find(
-                (stat) => stat.stat_name === "전투력"
-              );
-              if (combatPowerStat) {
-                combatPower = parseInt(combatPowerStat.stat_value);
-              }
-            }
-            charactersData.push({ ...info.basicData, combatPower });
+            // ✨ [핵심 수정] 정렬 기준을 최고 전투력(max_combat_power)으로 변경
+            const maxCombatPower = info.statData.max_combat_power || 0;
+            const currentCombatPower =
+              info.statData.final_stat.find((s) => s.stat_name === "전투력")
+                ?.stat_value || 0;
+
+            charactersData.push({
+              ...info.basicData,
+              currentCombatPower: parseInt(currentCombatPower),
+              maxCombatPower: maxCombatPower, // 정렬을 위한 최고 전투력
+            });
           }
         }
 
-        charactersData.sort((a, b) => b.combatPower - a.combatPower);
+        // ✨ 최고 전투력(maxCombatPower) 기준으로 내림차순 정렬
+        charactersData.sort((a, b) => b.maxCombatPower - a.maxCombatPower);
 
         let finalHtml = "";
         for (const char of charactersData) {
+          // ✨ 화면에는 현재 전투력을 표시하되, 정렬은 최고 전투력 기준으로!
           finalHtml += `
               <a href="detail.html?characterName=${
                 char.character_name
@@ -79,7 +82,7 @@
             char.character_class
           }</p>
                     <p><strong>서버:</strong> ${char.world_name}</p>
-                    <p><strong>전투력:</strong> ${char.combatPower.toLocaleString()}</p>
+                    <p><strong>전투력:</strong> ${char.currentCombatPower.toLocaleString()}</p>
                 </div>
               </a>
             `;
