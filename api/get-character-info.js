@@ -1,15 +1,13 @@
 const https = require("https");
 
+// 넥슨 서버에 안전하게 데이터를 요청하는 함수
 function nexonApiRequest(path, apiKey) {
   return new Promise((resolve) => {
     const options = {
       hostname: "open.api.nexon.com",
       path: path,
       method: "GET",
-      headers: {
-        "x-nxopen-api-key": apiKey,
-        Accept: "application/json",
-      },
+      headers: { "x-nxopen-api-key": apiKey },
     };
     const req = https.request(options, (res) => {
       let data = "";
@@ -18,15 +16,16 @@ function nexonApiRequest(path, apiKey) {
         try {
           resolve(JSON.parse(data));
         } catch (e) {
-          resolve(null);
+          resolve(null); // 파싱 실패 시 null
         }
       });
     });
-    req.on("error", () => resolve(null));
+    req.on("error", () => resolve(null)); // 네트워크 에러 시 null
     req.end();
   });
 }
 
+// 메인 로직 핸들러
 export default async function handler(request, response) {
   try {
     const characterName = request.query.characterName;
@@ -39,14 +38,13 @@ export default async function handler(request, response) {
       throw new Error("API 키가 서버에 설정되지 않았습니다.");
     }
 
-    // ✨ [핵심 수정] 날짜를 한국 시간(KST) 기준으로 정확하게 어제로 설정
+    // 한국 시간 기준 어제 날짜를 정확하게 계산
     const now = new Date();
-    const kstOffset = 9 * 60 * 60 * 1000; // 9시간
+    const kstOffset = 9 * 60 * 60 * 1000;
     const kstNow = new Date(now.getTime() + kstOffset);
     kstNow.setDate(kstNow.getDate() - 1);
     const dateString = kstNow.toISOString().split("T")[0];
 
-    // 1. OCID 조회
     const ocidData = await nexonApiRequest(
       `/maplestory/v1/id?character_name=${encodeURIComponent(characterName)}`,
       apiKey
@@ -58,7 +56,6 @@ export default async function handler(request, response) {
     }
     const ocid = ocidData.ocid;
 
-    // 2. 필요한 모든 정보를 안전하게 동시에 요청
     const results = await Promise.allSettled([
       nexonApiRequest(
         `/maplestory/v1/character/basic?ocid=${ocid}&date=${dateString}`,
@@ -90,31 +87,34 @@ export default async function handler(request, response) {
       ),
     ]);
 
-    // (이하 데이터 처리 및 응답 로직은 이전과 동일하게 유지)
-    const basicData =
-      results[0].status === "fulfilled" ? results[0].value : null;
+    const getValue = (result) =>
+      result.status === "fulfilled" ? result.value : null;
+
+    const basicData = getValue(results[0]);
     const presetStats = [
-      results[1].status === "fulfilled" ? results[1].value : null,
-      results[3].status === "fulfilled" ? results[3].value : null,
-      results[5].status === "fulfilled" ? results[5].value : null,
+      getValue(results[1]),
+      getValue(results[3]),
+      getValue(results[5]),
     ];
     const presetItems = [
-      results[2].status === "fulfilled" ? results[2].value : null,
-      results[4].status === "fulfilled" ? results[4].value : null,
-      results[6].status === "fulfilled" ? results[6].value : null,
+      getValue(results[2]),
+      getValue(results[4]),
+      getValue(results[6]),
     ];
 
     if (!basicData) {
       throw new Error("캐릭터의 필수 기본 정보를 불러오지 못했습니다.");
     }
 
+    // ✨ [핵심 수정] "성공했고, 데이터 내용도 유효한" 전투력만 필터링
     const combatPowers = presetStats
-      .map(
-        (statData) =>
-          statData?.final_stat?.find((s) => s.stat_name === "전투력")
-            ?.stat_value || 0
-      )
-      .map((power) => parseInt(power))
+      .filter((stat) => stat && stat.final_stat) // stat 객체가 유효하고, final_stat 배열이 있는지 확인
+      .map((statData) => {
+        const powerStat = statData.final_stat.find(
+          (s) => s.stat_name === "전투력"
+        );
+        return powerStat ? parseInt(powerStat.stat_value, 10) : 0;
+      })
       .filter((power) => power > 0);
 
     const maxCombatPower =
@@ -123,6 +123,7 @@ export default async function handler(request, response) {
     const allItems = new Map();
     presetItems.forEach((itemSet) => {
       itemSet?.item_equipment?.forEach((item) => {
+        // itemSet이 null이 아닐 때만 실행
         if (!allItems.has(item.item_name)) {
           allItems.set(item.item_name, item);
         }
@@ -130,15 +131,10 @@ export default async function handler(request, response) {
     });
 
     const combinedItemData = { item_equipment: Array.from(allItems.values()) };
-    const currentStatData = presetStats[0] || {};
+    const currentStatData = presetStats[0];
 
-    // Vercel의 캐시를 사용하지 않도록 헤더 설정
-    response.setHeader(
-      "Cache-Control",
-      "no-store, no-cache, must-revalidate, proxy-revalidate"
-    );
-    response.setHeader("Pragma", "no-cache");
-    response.setHeader("Expires", "0");
+    // Vercel 캐시를 사용하지 않도록 헤더 설정
+    response.setHeader("Cache-Control", "s-maxage=1, stale-while-revalidate");
 
     response.status(200).json({
       basicData,
