@@ -1,6 +1,5 @@
 const https = require("https");
 
-// 넥슨 서버에 안전하게 데이터를 요청하는 함수
 function nexonApiRequest(path, apiKey) {
   return new Promise((resolve) => {
     const options = {
@@ -25,7 +24,6 @@ function nexonApiRequest(path, apiKey) {
   });
 }
 
-// 메인 로직 핸들러
 export default async function handler(request, response) {
   try {
     const characterName = request.query.characterName;
@@ -38,7 +36,6 @@ export default async function handler(request, response) {
       throw new Error("API 키가 서버에 설정되지 않았습니다.");
     }
 
-    // 1. OCID 조회 (date 파라미터 불필요)
     const ocidData = await nexonApiRequest(
       `/maplestory/v1/id?character_name=${encodeURIComponent(characterName)}`,
       apiKey
@@ -50,7 +47,6 @@ export default async function handler(request, response) {
     }
     const ocid = ocidData.ocid;
 
-    // ✨ [핵심 수정] 2. date 파라미터 없이 API 요청
     const results = await Promise.allSettled([
       nexonApiRequest(`/maplestory/v1/character/basic?ocid=${ocid}`, apiKey),
       nexonApiRequest(
@@ -98,7 +94,6 @@ export default async function handler(request, response) {
       throw new Error("캐릭터의 필수 기본 정보를 불러오지 못했습니다.");
     }
 
-    // 3. 유효한 모든 전투력 찾기
     const combatPowers = presetStats
       .filter((stat) => stat && stat.final_stat)
       .map((statData) => {
@@ -109,11 +104,9 @@ export default async function handler(request, response) {
       })
       .filter((power) => power > 0);
 
-    // 4. 가장 높은 전투력 확정
     const maxCombatPower =
       combatPowers.length > 0 ? Math.max(...combatPowers) : 0;
 
-    // 5. 전체 아이템 목록 생성
     const allItems = new Map();
     presetItems.forEach((itemSet) => {
       itemSet?.item_equipment?.forEach((item) => {
@@ -124,16 +117,15 @@ export default async function handler(request, response) {
     });
 
     const combinedItemData = { item_equipment: Array.from(allItems.values()) };
-    const currentStatData = presetStats[0]; // 1번 프리셋을 현재 스탯으로 간주
+    const currentStatData = presetStats[0] || {};
 
-    // 6. Vercel 캐시 제어 헤더 설정
     response.setHeader("Cache-Control", "s-maxage=1, stale-while-revalidate");
 
     response.status(200).json({
       basicData,
       statData: { ...currentStatData, max_combat_power: maxCombatPower },
       itemData: combinedItemData,
-      data_date: basicData.date, // ✨ basicData에 포함된 최신 데이터 기준일을 사용
+      data_date: basicData.date,
     });
   } catch (error) {
     console.error(
