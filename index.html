@@ -54,6 +54,7 @@
           ) {
             const info = result.value;
             if (info.basicData && info.statData) {
+              // ✨ '비서'가 계산해준 최고 전투력 값을 최우선으로 사용합니다.
               const maxCombatPower = info.statData.max_combat_power || 0;
               if (info.data_date) latestDataDate = info.data_date.split("T")[0];
 
@@ -71,10 +72,11 @@
           }
         }
 
+        // 최고 전투력(maxCombatPower) 기준으로 정렬합니다.
         charactersData.sort((a, b) => b.maxCombatPower - a.maxCombatPower);
 
         if (latestDataDate) {
-          dateContainer.innerText = `* 정보 기준일: ${latestDataDate} (캐릭터 정보는 매일 오전 1~5시 사이 갱신될 수 있습니다.)`;
+          dateContainer.innerText = `* 정보 기준일: ${latestDataDate} (데이터는 약 15분마다 갱신될 수 있습니다.)`;
         }
 
         let finalHtml = "";
@@ -83,6 +85,7 @@
             "<p>캐릭터 정보를 불러오지 못했습니다. API 키 또는 서버 상태를 확인해주세요.</p>";
         } else {
           for (const char of charactersData) {
+            // ✨ 화면에 '최고 전투력'을 표시하도록 명확히 수정합니다.
             finalHtml += `
                   <a href="detail.html?characterName=${
                     char.character_name

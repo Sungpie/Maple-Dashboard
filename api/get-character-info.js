@@ -43,7 +43,6 @@ export default async function handler(request, response) {
         .json({ error: "캐릭터 OCID를 찾을 수 없습니다." });
     const ocid = ocidData.ocid;
 
-    // ✨ [핵심 수정] 모든 API 요청을 가장 단순하고 명확한 방식으로 다시 작성
     const results = await Promise.allSettled([
       nexonApiRequest(`/maplestory/v1/character/basic?ocid=${ocid}`, apiKey),
       nexonApiRequest(
@@ -110,7 +109,7 @@ export default async function handler(request, response) {
         ? parseInt(combatPowerStat.stat_value, 10)
         : 0;
 
-      // ✨ [핵심 수정] stats와 items 객체가 유효할 때만 점수 계산을 시도합니다.
+      // ✨ [핵심 수정] stats와 items, 그리고 그 안의 데이터가 모두 유효할 때만 점수를 계산합니다.
       if (stats && items && items.item_equipment) {
         // 어빌리티 점수
         abilityData?.ability_info?.forEach((ability) => {
@@ -124,14 +123,19 @@ export default async function handler(request, response) {
         });
 
         // 하이퍼스탯 점수
-        const hyperStatIED = hyperStatData?.hyper_stat_preset_1?.find(
-          (s) => s.stat_type === "방어율 무시"
-        );
-        if (hyperStatIED && parseInt(hyperStatIED.stat_level) > 0) score += 5;
+        const hyperStatPreset =
+          hyperStatData?.[`hyper_stat_preset_${presetNo}`];
+        if (hyperStatPreset) {
+          const hyperStatIED = hyperStatPreset.find(
+            (s) => s.stat_type === "방어율 무시"
+          );
+          if (hyperStatIED && parseInt(hyperStatIED.stat_level) > 0) score += 5;
+        }
 
         // 아이템 점수
-        const hasSeedRing = items.item_equipment.some((item) =>
-          item.item_name.includes("링")
+        const hasSeedRing = items.item_equipment.some(
+          (item) =>
+            item.item_name.includes("링") && !item.item_name.includes("어비스")
         );
         const hasDropPendant = items.item_equipment.some((item) =>
           item.item_name.includes("정령의 펜던트")
