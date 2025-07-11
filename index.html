@@ -80,7 +80,7 @@
             "<p>캐릭터 정보를 불러오지 못했습니다. API 키 또는 서버 상태를 확인해주세요.</p>";
         } else {
           for (const char of charactersData) {
-            // ✨ [핵심 수정] 화면에 최고 전투력을 표시하도록 변경
+            // ✨ [최종 수정] 화면에 '최고 전투력'을 표시하도록 변경!
             finalHtml += `
                   <a href="detail.html?characterName=${
                     char.character_name
