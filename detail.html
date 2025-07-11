@@ -7,9 +7,11 @@
   </head>
   <body>
     <div id="character-profile"></div>
+
     <div id="detail-result">
       <p>상세 정보를 불러오는 중입니다...</p>
     </div>
+
     <div
       id="item-tooltip"
       class="item-tooltip"
@@ -17,9 +19,10 @@
     ></div>
 
     <script>
+      // 툴팁에서 사용할 전체 아이템 정보를 저장할 전역 변수
       let characterItemData = null;
 
-      // ✨ [핵심 수정] window.onload 로직을 명확하게 수정
+      // 페이지가 로드되면 실행될 메인 함수
       window.onload = async function () {
         const urlParams = new URLSearchParams(window.location.search);
         const characterName = urlParams.get("characterName");
@@ -61,9 +64,10 @@
 
         // 화면에 프로필과 아이템 목록을 그리는 함수 호출
         displayCharacterProfile(basicData, statData);
-        displayCharacterDetails(itemData); // ✨ 이제 itemData는 모든 아이템이 담긴 객체입니다.
+        displayCharacterDetails(itemData);
       };
 
+      // 캐릭터 프로필(상단)을 그리는 함수
       function displayCharacterProfile(basicData, statData) {
         const profileDiv = document.getElementById("character-profile");
         const combatPowerStat = statData?.final_stat?.find(
@@ -87,18 +91,29 @@
         profileDiv.innerHTML = profileHtml;
       }
 
+      // 장착 장비 그리드를 그리는 함수
       function displayCharacterDetails(itemData) {
         const resultDiv = document.getElementById("detail-result");
+        // 모든 프리셋의 아이템을 합쳐서 중복을 제거한 목록을 기준으로 표시
+        const allItemsMap = new Map();
+        [
+          ...(itemData?.item_equipment || []),
+          ...(itemData?.item_equipment_preset_1 || []),
+          ...(itemData?.item_equipment_preset_2 || []),
+          ...(itemData?.item_equipment_preset_3 || []),
+        ].forEach((item) => {
+          if (item && !allItemsMap.has(item.item_name)) {
+            allItemsMap.set(item.item_name, item);
+          }
+        });
+
+        const allItems = Array.from(allItemsMap.values());
+
         let itemHtml =
           '<h2>장착 장비 (모든 프리셋)</h2><div class="item-grid">';
 
-        // ✨ itemData와 그 안의 item_equipment가 유효한지 다시 한번 확인
-        if (
-          itemData &&
-          itemData.item_equipment &&
-          itemData.item_equipment.length > 0
-        ) {
-          itemData.item_equipment.forEach((item) => {
+        if (allItems.length > 0) {
+          allItems.forEach((item) => {
             itemHtml += `
                 <div class="item-box" data-item-name="${item.item_name}">
                     <img src="${item.item_icon}" alt="${item.item_name}">
@@ -115,6 +130,7 @@
         attachItemHoverListeners();
       }
 
+      // 모든 아이템 박스에 마우스 이벤트를 등록하는 함수
       function attachItemHoverListeners() {
         document.querySelectorAll(".item-box").forEach((box) => {
           box.addEventListener("mouseenter", handleMouseEnter);
@@ -122,8 +138,258 @@
         });
       }
 
-      // handleMouseEnter, handleMouseLeave 함수는 이전과 동일하게 유지
-      // ... (이하 생략)
+      // 아이템 상세 정보 툴팁을 생성하고 표시하는 함수
+      async function handleMouseEnter(event) {
+        const itemBox = event.currentTarget;
+        const itemName = itemBox.dataset.itemName;
+        const tooltip = document.getElementById("item-tooltip");
+
+        // 전역 변수에 저장된 전체 아이템 목록에서 상세 정보를 찾음
+        const allPresetItems = [
+          ...(characterItemData?.item_equipment || []),
+          ...(characterItemData?.item_equipment_preset_1 || []),
+          ...(characterItemData?.item_equipment_preset_2 || []),
+          ...(characterItemData?.item_equipment_preset_3 || []),
+        ];
+
+        const allItemsMap = new Map();
+        allPresetItems.forEach((item) => {
+          if (item && !allItemsMap.has(item.item_name)) {
+            allItemsMap.set(item.item_name, item);
+          }
+        });
+
+        const itemDetail = allItemsMap.get(itemName);
+
+        if (itemDetail) {
+          let detailHtml = "";
+          const starforce = parseInt(itemDetail.starforce) || 0;
+          if (starforce > 0) {
+            let stars = "";
+            for (let i = 1; i <= 25; i++) {
+              stars += i <= starforce ? "★" : "☆";
+              if (i === 10 || i === 20) stars += "<br>";
+            }
+            detailHtml += `<p class="starforce">${stars}</p>`;
+          }
+
+          detailHtml += `<p class="item-name">${itemDetail.item_name} (+${
+            itemDetail.scroll_upgrade || 0
+          })</p>`;
+          if (itemDetail.potential_option_grade) {
+            detailHtml += `<p class="item-grade">(${itemDetail.potential_option_grade} 아이템)</p>`;
+          }
+          detailHtml += `<hr>`;
+          detailHtml += `<div class="item-icon-container"><img src="${itemDetail.item_icon}" alt="${itemDetail.item_name}"></div>`;
+          detailHtml += `<p>장비분류 : ${itemDetail.item_equipment_slot}</p>`;
+
+          const base = itemDetail.item_base_option || {};
+          const add = itemDetail.item_add_option || {};
+          const star = itemDetail.item_starforce_option || {};
+          const flame = itemDetail.item_flame_option || {};
+          const etc = itemDetail.item_etc_option || {};
+
+          const formatStat = (
+            name,
+            baseVal,
+            addVal,
+            starVal,
+            flameVal,
+            etcVal,
+            isPercentage = false
+          ) => {
+            const total =
+              (parseInt(baseVal) || 0) +
+              (parseInt(addVal) || 0) +
+              (parseInt(starVal) || 0) +
+              (parseInt(flameVal) || 0) +
+              (parseInt(etcVal) || 0);
+            if (total === 0) return "";
+            let detail = `${name} : +${total}${isPercentage ? "%" : ""}`;
+            if (
+              (parseInt(addVal) || 0) > 0 ||
+              (parseInt(starVal) || 0) > 0 ||
+              (parseInt(flameVal) || 0) > 0 ||
+              (parseInt(etcVal) || 0) > 0
+            ) {
+              let breakdown = ` (${parseInt(baseVal) || 0}${
+                isPercentage ? "%" : ""
+              }`;
+              if ((parseInt(addVal) || 0) > 0)
+                breakdown += `<span class="add-opt"> +${parseInt(addVal) || 0}${
+                  isPercentage ? "%" : ""
+                }</span>`;
+              if ((parseInt(starVal) || 0) > 0)
+                breakdown += `<span class="star-opt"> +${
+                  parseInt(starVal) || 0
+                }${isPercentage ? "%" : ""}</span>`;
+              if ((parseInt(flameVal) || 0) > 0)
+                breakdown += `<span class="flame-opt"> +${
+                  parseInt(flameVal) || 0
+                }${isPercentage ? "%" : ""}</span>`;
+              if ((parseInt(etcVal) || 0) > 0)
+                breakdown += `<span class="etc-opt"> +${parseInt(etcVal) || 0}${
+                  isPercentage ? "%" : ""
+                }</span>`;
+              breakdown += `)`;
+              detail += breakdown;
+            }
+            return `<p>${detail}</p>`;
+          };
+
+          detailHtml += formatStat(
+            "STR",
+            base.str,
+            add.str,
+            star.str,
+            flame.str,
+            etc.str
+          );
+          detailHtml += formatStat(
+            "DEX",
+            base.dex,
+            add.dex,
+            star.dex,
+            flame.dex,
+            etc.dex
+          );
+          detailHtml += formatStat(
+            "INT",
+            base.int,
+            add.int,
+            star.int,
+            flame.int,
+            etc.int
+          );
+          detailHtml += formatStat(
+            "LUK",
+            base.luk,
+            add.luk,
+            star.luk,
+            flame.luk,
+            etc.luk
+          );
+          detailHtml += formatStat(
+            "최대 HP",
+            base.max_hp,
+            add.max_hp,
+            star.max_hp,
+            flame.max_hp,
+            etc.max_hp
+          );
+          detailHtml += formatStat(
+            "공격력",
+            base.attack_power,
+            add.attack_power,
+            star.attack_power,
+            flame.attack_power,
+            etc.attack_power
+          );
+          detailHtml += formatStat(
+            "마력",
+            base.magic_power,
+            add.magic_power,
+            star.magic_power,
+            flame.magic_power,
+            etc.magic_power
+          );
+          detailHtml += formatStat(
+            "방어력",
+            base.armor,
+            add.armor,
+            star.armor,
+            flame.armor,
+            etc.armor
+          );
+          detailHtml += formatStat(
+            "올스탯",
+            base.all_stat,
+            add.all_stat,
+            null,
+            flame.all_stat,
+            null,
+            true
+          );
+          detailHtml += formatStat(
+            "보스 몬스터 공격 시 데미지",
+            base.boss_damage,
+            add.boss_damage,
+            null,
+            flame.boss_damage,
+            null,
+            true
+          );
+          detailHtml += formatStat(
+            "몬스터 방어율 무시",
+            base.ignore_monster_armor,
+            add.ignore_monster_armor,
+            star.ignore_monster_armor,
+            null,
+            null,
+            true
+          );
+
+          if (
+            itemDetail.potential_option_grade &&
+            itemDetail.potential_option_grade !== "노멀"
+          ) {
+            const grade = itemDetail.potential_option_grade.toLowerCase();
+            detailHtml += `<hr><p><span class="potential-prefix ${grade}">${grade
+              .charAt(0)
+              .toUpperCase()}</span><span class="potential-text ${grade}"> 잠재옵션</span></p>`;
+            if (itemDetail.potential_option_1)
+              detailHtml += `<p>${itemDetail.potential_option_1}</p>`;
+            if (itemDetail.potential_option_2)
+              detailHtml += `<p>${itemDetail.potential_option_2}</p>`;
+            if (itemDetail.potential_option_3)
+              detailHtml += `<p>${itemDetail.potential_option_3}</p>`;
+          }
+
+          if (
+            itemDetail.additional_potential_option_grade &&
+            itemDetail.additional_potential_option_grade !== "노멀"
+          ) {
+            const grade =
+              itemDetail.additional_potential_option_grade.toLowerCase();
+            detailHtml += `<hr><p><span class="potential-prefix ${grade}">${grade
+              .charAt(0)
+              .toUpperCase()}</span><span class="potential-text ${grade}"> 에디셔널 잠재옵션</span></p>`;
+            if (itemDetail.additional_potential_option_1)
+              detailHtml += `<p>${itemDetail.additional_potential_option_1}</p>`;
+            if (itemDetail.additional_potential_option_2)
+              detailHtml += `<p>${itemDetail.additional_potential_option_2}</p>`;
+            if (itemDetail.additional_potential_option_3)
+              detailHtml += `<p>${itemDetail.additional_potential_option_3}</p>`;
+          }
+          tooltip.innerHTML = detailHtml;
+        } else {
+          tooltip.innerHTML = `<p><strong>${itemName}</strong></p><p>상세 정보를 찾을 수 없습니다.</p>`;
+        }
+
+        tooltip.style.visibility = "visible";
+        tooltip.style.opacity = "1";
+        const boxRect = itemBox.getBoundingClientRect();
+        const tooltipRect = tooltip.getBoundingClientRect();
+        let left =
+          boxRect.left +
+          window.scrollX +
+          boxRect.width / 2 -
+          tooltipRect.width / 2;
+        if (left + tooltipRect.width > window.innerWidth)
+          left = window.innerWidth - tooltipRect.width - 20;
+        if (left < 0) left = 20;
+        tooltip.style.left = `${left}px`;
+        let top = boxRect.top + window.scrollY - tooltipRect.height - 10;
+        if (top < window.scrollY) top = boxRect.bottom + window.scrollY + 10;
+        tooltip.style.top = `${top}px`;
+      }
+
+      // 마우스가 아이템에서 벗어났을 때 툴팁을 숨기는 함수
+      function handleMouseLeave() {
+        const tooltip = document.getElementById("item-tooltip");
+        tooltip.style.visibility = "hidden";
+        tooltip.style.opacity = "0";
+      }
     </script>
   </body>
 </html>

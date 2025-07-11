@@ -43,7 +43,13 @@ export default async function handler(request, response) {
         .json({ error: "캐릭터 OCID를 찾을 수 없습니다." });
     const ocid = ocidData.ocid;
 
-    const results = await Promise.allSettled([
+    // ✨ [핵심 수정] 1. item-equipment는 한 번만 요청하고, 나머지는 병렬로 처리
+    const itemData = await nexonApiRequest(
+      `/maplestory/v1/item-equipment?ocid=${ocid}`,
+      apiKey
+    );
+
+    const otherResults = await Promise.allSettled([
       nexonApiRequest(`/maplestory/v1/character/basic?ocid=${ocid}`, apiKey),
       nexonApiRequest(
         `/maplestory/v1/character/hyper-stat?ocid=${ocid}`,
@@ -55,23 +61,11 @@ export default async function handler(request, response) {
         apiKey
       ),
       nexonApiRequest(
-        `/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=1`,
-        apiKey
-      ),
-      nexonApiRequest(
         `/maplestory/v1/character/stat?ocid=${ocid}&preset_no=2`,
         apiKey
       ),
       nexonApiRequest(
-        `/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=2`,
-        apiKey
-      ),
-      nexonApiRequest(
         `/maplestory/v1/character/stat?ocid=${ocid}&preset_no=3`,
-        apiKey
-      ),
-      nexonApiRequest(
-        `/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=3`,
         apiKey
       ),
     ]);
@@ -79,27 +73,29 @@ export default async function handler(request, response) {
     const getValue = (result) =>
       result.status === "fulfilled" ? result.value : null;
 
-    const basicData = getValue(results[0]);
-    const hyperStatData = getValue(results[1]);
-    const abilityData = getValue(results[2]);
+    const basicData = getValue(otherResults[0]);
+    const hyperStatData = getValue(otherResults[1]);
+    const abilityData = getValue(otherResults[2]);
     const presetStats = [
-      getValue(results[3]),
-      getValue(results[5]),
-      getValue(results[7]),
-    ];
-    const presetItems = [
-      getValue(results[4]),
-      getValue(results[6]),
-      getValue(results[8]),
+      getValue(otherResults[3]),
+      getValue(otherResults[4]),
+      getValue(otherResults[5]),
     ];
 
-    if (!basicData)
-      throw new Error("캐릭터의 필수 기본 정보를 불러오지 못했습니다.");
+    if (!basicData || !itemData)
+      throw new Error("캐릭터의 필수 기본/장비 정보를 불러오지 못했습니다.");
+
+    // ✨ 2. 한 번의 응답에서 각 프리셋 아이템 목록을 추출
+    const presetItems = [
+      itemData.item_equipment_preset_1,
+      itemData.item_equipment_preset_2,
+      itemData.item_equipment_preset_3,
+    ];
 
     const presetScores = [1, 2, 3].map((presetNo) => {
       const index = presetNo - 1;
       const stats = presetStats[index];
-      const items = presetItems[index];
+      const items = presetItems[index]; // 이제 items는 장비 목록 배열임
       let score = 0;
 
       const combatPowerStat = stats?.final_stat?.find(
@@ -109,7 +105,8 @@ export default async function handler(request, response) {
         ? parseInt(combatPowerStat.stat_value, 10)
         : 0;
 
-      if (stats && items && items.item_equipment) {
+      if (stats && items) {
+        // ✨ items가 배열이므로 item_equipment 속성 체크는 불필요
         abilityData?.ability_info?.forEach((ability) => {
           if (ability.ability_value.includes("보스 몬스터 공격 시 데미지"))
             score += 10;
@@ -127,7 +124,7 @@ export default async function handler(request, response) {
           );
           if (hyperStatIED && parseInt(hyperStatIED.stat_level) > 0) score += 5;
         }
-        const hasSeedRing = items.item_equipment.some(
+        const hasSeedRing = items.some(
           (item) =>
             item.item_name.includes("링") && !item.item_name.includes("어비스")
         );
@@ -144,30 +141,13 @@ export default async function handler(request, response) {
     const bestPresetInfo = presetScores[0];
     const maxCombatPower = bestPresetInfo.combatPower;
 
-    // ✨ [핵심 수정] 모든 프리셋의 아이템을 합쳐서 표준 'itemData' 객체로 만듦
-    const allItems = new Map();
-    presetItems.forEach((itemSet) => {
-      itemSet?.item_equipment?.forEach((item) => {
-        if (!allItems.has(item.item_name)) {
-          allItems.set(item.item_name, item);
-        }
-      });
-    });
-
-    const finalItemData = {
-      item_equipment: Array.from(allItems.values()),
-      // 상세 페이지가 참고할 수 있도록, 최고 점수 프리셋의 다른 정보도 추가
-      preset_no: bestPresetInfo.presetNo,
-    };
-
-    const currentStatData =
-      presetStats[bestPresetInfo.presetNo - 1] || presetStats[0] || {};
+    const currentStatData = presetStats[0] || {};
 
     response.setHeader("Cache-Control", "s-maxage=1, stale-while-revalidate");
     response.status(200).json({
       basicData,
       statData: { ...currentStatData, max_combat_power: maxCombatPower },
-      itemData: finalItemData, // ✨ 'itemData'라는 이름으로 통일해서 전달
+      itemData: itemData, // ✨ 모든 프리셋 정보가 담긴 itemData를 그대로 전달
       data_date: basicData.date,
     });
   } catch (error) {
