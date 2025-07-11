@@ -1,6 +1,5 @@
 const https = require("https");
 
-// 넥슨 서버에 안전하게 데이터를 요청하는 함수
 function nexonApiRequest(path, apiKey) {
   return new Promise((resolve) => {
     const options = {
@@ -16,16 +15,15 @@ function nexonApiRequest(path, apiKey) {
         try {
           resolve(JSON.parse(data));
         } catch (e) {
-          resolve(null); // 파싱 실패 시 null
+          resolve(null);
         }
       });
     });
-    req.on("error", () => resolve(null)); // 네트워크 에러 시 null
+    req.on("error", () => resolve(null));
     req.end();
   });
 }
 
-// 메인 로직 핸들러
 export default async function handler(request, response) {
   try {
     const characterName = request.query.characterName;
@@ -38,7 +36,6 @@ export default async function handler(request, response) {
       throw new Error("API 키가 서버에 설정되지 않았습니다.");
     }
 
-    // 한국 시간 기준 어제 날짜를 정확하게 계산
     const now = new Date();
     const kstOffset = 9 * 60 * 60 * 1000;
     const kstNow = new Date(now.getTime() + kstOffset);
@@ -106,9 +103,8 @@ export default async function handler(request, response) {
       throw new Error("캐릭터의 필수 기본 정보를 불러오지 못했습니다.");
     }
 
-    // ✨ [핵심 수정] "성공했고, 데이터 내용도 유효한" 전투력만 필터링
     const combatPowers = presetStats
-      .filter((stat) => stat && stat.final_stat) // stat 객체가 유효하고, final_stat 배열이 있는지 확인
+      .filter((stat) => stat && stat.final_stat)
       .map((statData) => {
         const powerStat = statData.final_stat.find(
           (s) => s.stat_name === "전투력"
@@ -123,7 +119,6 @@ export default async function handler(request, response) {
     const allItems = new Map();
     presetItems.forEach((itemSet) => {
       itemSet?.item_equipment?.forEach((item) => {
-        // itemSet이 null이 아닐 때만 실행
         if (!allItems.has(item.item_name)) {
           allItems.set(item.item_name, item);
         }
@@ -133,13 +128,17 @@ export default async function handler(request, response) {
     const combinedItemData = { item_equipment: Array.from(allItems.values()) };
     const currentStatData = presetStats[0];
 
-    // Vercel 캐시를 사용하지 않도록 헤더 설정
-    response.setHeader("Cache-Control", "s-maxage=1, stale-while-revalidate");
+    // Vercel의 모든 캐시를 무력화하는 가장 강력한 헤더
+    response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    response.setHeader("Pragma", "no-cache");
+    response.setHeader("Expires", "0");
 
     response.status(200).json({
       basicData,
       statData: { ...currentStatData, max_combat_power: maxCombatPower },
       itemData: combinedItemData,
+      // ✨ [핵심 수정] 데이터 기준일을 함께 전달
+      data_date: dateString,
     });
   } catch (error) {
     console.error(

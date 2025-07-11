@@ -17,14 +17,12 @@
       };
 
       async function getCharacterInfo(characterName) {
-        // 캐시 방지를 위해 현재 시간을 쿼리 파라미터로 추가
         const cacheBuster = `&t=${new Date().getTime()}`;
         const response = await fetch(
           `/api/get-character-info?characterName=${encodeURIComponent(
             characterName
           )}${cacheBuster}`
         );
-
         if (!response.ok) {
           console.error(
             `[${characterName}] 정보 조회 실패:`,
@@ -52,20 +50,13 @@
           ) {
             const info = result.value;
             if (info.basicData && info.statData) {
-              const currentCombatPowerStat = info.statData.final_stat?.find(
-                (s) => s.stat_name === "전투력"
-              );
-              const currentCombatPower = currentCombatPowerStat
-                ? parseInt(currentCombatPowerStat.stat_value, 10)
-                : 0;
-
-              // ✨ '비서'가 계산해준 최고 전투력 값을 최우선으로 사용
-              const maxCombatPower =
-                info.statData.max_combat_power || currentCombatPower;
+              const maxCombatPower = info.statData.max_combat_power || 0;
 
               charactersData.push({
                 ...info.basicData,
                 maxCombatPower: maxCombatPower,
+                // ✨ 데이터 기준일 정보 저장
+                dataDate: info.data_date,
               });
             }
           } else {
@@ -85,6 +76,7 @@
             "<p>캐릭터 정보를 불러오지 못했습니다. API 키 또는 서버 상태를 확인해주세요.</p>";
         } else {
           for (const char of charactersData) {
+            // ✨ [핵심 수정] 전투력 옆에 데이터 기준일을 함께 표시
             finalHtml += `
                   <a href="detail.html?characterName=${
                     char.character_name
@@ -100,7 +92,9 @@
               char.character_class
             }</p>
                         <p><strong>서버:</strong> ${char.world_name}</p>
-                        <p><strong>최고 전투력:</strong> ${char.maxCombatPower.toLocaleString()}</p>
+                        <p><strong>최고 전투력:</strong> ${char.maxCombatPower.toLocaleString()} <span style="font-size: 11px; color: #888;">(${
+              char.dataDate
+            } 기준)</span></p>
                     </div>
                   </a>
                 `;
