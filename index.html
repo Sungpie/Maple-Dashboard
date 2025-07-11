@@ -21,11 +21,14 @@
       }
 
       async function getCharacterInfo(characterName) {
+        // ✨ [핵심 수정] 요청 주소 뒤에 현재 시간을 붙여서 매번 새로운 요청인 것처럼 만듦
+        const cacheBuster = `&t=${new Date().getTime()}`;
         const response = await fetch(
           `/api/get-character-info?characterName=${encodeURIComponent(
             characterName
-          )}`
+          )}${cacheBuster}`
         );
+
         if (!response.ok) {
           console.error(
             `[${characterName}] 정보 조회 실패:`,

@@ -1,13 +1,15 @@
 const https = require("https");
 
-// 넥슨 서버에 안전하게 데이터를 요청하는 함수
 function nexonApiRequest(path, apiKey) {
   return new Promise((resolve) => {
     const options = {
       hostname: "open.api.nexon.com",
       path: path,
       method: "GET",
-      headers: { "x-nxopen-api-key": apiKey },
+      headers: {
+        "x-nxopen-api-key": apiKey,
+        Accept: "application/json",
+      },
     };
     const req = https.request(options, (res) => {
       let data = "";
@@ -16,16 +18,15 @@ function nexonApiRequest(path, apiKey) {
         try {
           resolve(JSON.parse(data));
         } catch (e) {
-          resolve(null); // JSON 파싱 실패 시 null 반환
+          resolve(null);
         }
       });
     });
-    req.on("error", () => resolve(null)); // 네트워크 에러 시 null 반환
+    req.on("error", () => resolve(null));
     req.end();
   });
 }
 
-// 메인 로직 핸들러
 export default async function handler(request, response) {
   try {
     const characterName = request.query.characterName;
@@ -38,9 +39,12 @@ export default async function handler(request, response) {
       throw new Error("API 키가 서버에 설정되지 않았습니다.");
     }
 
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const dateString = yesterday.toISOString().split("T")[0];
+    // ✨ [핵심 수정] 날짜를 한국 시간(KST) 기준으로 정확하게 어제로 설정
+    const now = new Date();
+    const kstOffset = 9 * 60 * 60 * 1000; // 9시간
+    const kstNow = new Date(now.getTime() + kstOffset);
+    kstNow.setDate(kstNow.getDate() - 1);
+    const dateString = kstNow.toISOString().split("T")[0];
 
     // 1. OCID 조회
     const ocidData = await nexonApiRequest(
@@ -59,34 +63,34 @@ export default async function handler(request, response) {
       nexonApiRequest(
         `/maplestory/v1/character/basic?ocid=${ocid}&date=${dateString}`,
         apiKey
-      ), // 0: 기본 정보
+      ),
       nexonApiRequest(
         `/maplestory/v1/character/stat?ocid=${ocid}&date=${dateString}&preset_no=1`,
         apiKey
-      ), // 1: 프리셋 1 스탯
+      ),
       nexonApiRequest(
         `/maplestory/v1/item-equipment?ocid=${ocid}&date=${dateString}&preset_no=1`,
         apiKey
-      ), // 2: 프리셋 1 장비
+      ),
       nexonApiRequest(
         `/maplestory/v1/character/stat?ocid=${ocid}&date=${dateString}&preset_no=2`,
         apiKey
-      ), // 3: 프리셋 2 스탯
+      ),
       nexonApiRequest(
         `/maplestory/v1/item-equipment?ocid=${ocid}&date=${dateString}&preset_no=2`,
         apiKey
-      ), // 4: 프리셋 2 장비
+      ),
       nexonApiRequest(
         `/maplestory/v1/character/stat?ocid=${ocid}&date=${dateString}&preset_no=3`,
         apiKey
-      ), // 5: 프리셋 3 스탯
+      ),
       nexonApiRequest(
         `/maplestory/v1/item-equipment?ocid=${ocid}&date=${dateString}&preset_no=3`,
         apiKey
-      ), // 6: 프리셋 3 장비
+      ),
     ]);
 
-    // 3. 성공한 요청에서만 데이터 추출
+    // (이하 데이터 처리 및 응답 로직은 이전과 동일하게 유지)
     const basicData =
       results[0].status === "fulfilled" ? results[0].value : null;
     const presetStats = [
@@ -104,7 +108,6 @@ export default async function handler(request, response) {
       throw new Error("캐릭터의 필수 기본 정보를 불러오지 못했습니다.");
     }
 
-    // 4. 유효한 모든 전투력 찾기
     const combatPowers = presetStats
       .map(
         (statData) =>
@@ -114,11 +117,9 @@ export default async function handler(request, response) {
       .map((power) => parseInt(power))
       .filter((power) => power > 0);
 
-    // 5. 가장 높은 전투력 확정
     const maxCombatPower =
       combatPowers.length > 0 ? Math.max(...combatPowers) : 0;
 
-    // 6. 상세 페이지에 보여줄 전체 아이템 목록 생성 (중복 제거)
     const allItems = new Map();
     presetItems.forEach((itemSet) => {
       itemSet?.item_equipment?.forEach((item) => {
@@ -129,9 +130,16 @@ export default async function handler(request, response) {
     });
 
     const combinedItemData = { item_equipment: Array.from(allItems.values()) };
-    const currentStatData = presetStats[0] || {}; // 현재 스탯은 1번 프리셋 기준
+    const currentStatData = presetStats[0] || {};
 
-    // 7. 최종 정보 조합하여 전달
+    // Vercel의 캐시를 사용하지 않도록 헤더 설정
+    response.setHeader(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate"
+    );
+    response.setHeader("Pragma", "no-cache");
+    response.setHeader("Expires", "0");
+
     response.status(200).json({
       basicData,
       statData: { ...currentStatData, max_combat_power: maxCombatPower },
