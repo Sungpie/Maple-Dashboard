@@ -1,6 +1,5 @@
 const https = require("https");
 
-// 넥슨 서버에 안전하게 데이터를 요청하는 함수
 function nexonApiRequest(path, apiKey) {
   return new Promise((resolve) => {
     const options = {
@@ -16,40 +15,34 @@ function nexonApiRequest(path, apiKey) {
         try {
           resolve(JSON.parse(data));
         } catch (e) {
-          resolve(null); // 파싱 실패 시 null
+          resolve(null);
         }
       });
     });
-    req.on("error", () => resolve(null)); // 네트워크 에러 시 null
+    req.on("error", () => resolve(null));
     req.end();
   });
 }
 
-// 메인 로직 핸들러
 export default async function handler(request, response) {
   try {
     const characterName = request.query.characterName;
-    if (!characterName) {
+    if (!characterName)
       return response.status(400).json({ error: "캐릭터 이름이 필요합니다." });
-    }
 
     const apiKey = process.env.NEXON_API_KEY;
-    if (!apiKey) {
-      throw new Error("API 키가 서버에 설정되지 않았습니다.");
-    }
+    if (!apiKey) throw new Error("API 키가 서버에 설정되지 않았습니다.");
 
     const ocidData = await nexonApiRequest(
       `/maplestory/v1/id?character_name=${encodeURIComponent(characterName)}`,
       apiKey
     );
-    if (!ocidData || ocidData.error) {
+    if (!ocidData || ocidData.error)
       return response
         .status(404)
         .json({ error: "캐릭터 OCID를 찾을 수 없습니다." });
-    }
     const ocid = ocidData.ocid;
 
-    // ✨ [핵심 수정] 모든 API 요청을 가장 단순하고 명확한 방식으로 다시 작성
     const results = await Promise.allSettled([
       nexonApiRequest(`/maplestory/v1/character/basic?ocid=${ocid}`, apiKey),
       nexonApiRequest(
@@ -100,9 +93,8 @@ export default async function handler(request, response) {
       getValue(results[8]),
     ];
 
-    if (!basicData) {
+    if (!basicData)
       throw new Error("캐릭터의 필수 기본 정보를 불러오지 못했습니다.");
-    }
 
     const presetScores = [1, 2, 3].map((presetNo) => {
       const index = presetNo - 1;
@@ -127,7 +119,6 @@ export default async function handler(request, response) {
           )
             score -= 10;
         });
-
         const hyperStatPreset =
           hyperStatData?.[`hyper_stat_preset_${presetNo}`];
         if (hyperStatPreset) {
@@ -136,18 +127,12 @@ export default async function handler(request, response) {
           );
           if (hyperStatIED && parseInt(hyperStatIED.stat_level) > 0) score += 5;
         }
-
         const hasSeedRing = items.item_equipment.some(
           (item) =>
             item.item_name.includes("링") && !item.item_name.includes("어비스")
         );
-        const hasDropPendant = items.item_equipment.some((item) =>
-          item.item_name.includes("정령의 펜던트")
-        );
         if (hasSeedRing) score += 5;
-        if (hasDropPendant) score -= 5;
       }
-
       return { presetNo, score, combatPower };
     });
 
@@ -156,23 +141,33 @@ export default async function handler(request, response) {
       return b.combatPower - a.combatPower;
     });
 
-    const bestPreset = presetScores[0];
-    const maxCombatPower = bestPreset.combatPower;
+    const bestPresetInfo = presetScores[0];
+    const maxCombatPower = bestPresetInfo.combatPower;
 
-    const currentStatData = presetStats[0] || {};
+    // ✨ [핵심 수정] 모든 프리셋의 아이템을 합쳐서 표준 'itemData' 객체로 만듦
     const allItems = new Map();
     presetItems.forEach((itemSet) => {
       itemSet?.item_equipment?.forEach((item) => {
-        if (!allItems.has(item.item_name)) allItems.set(item.item_name, item);
+        if (!allItems.has(item.item_name)) {
+          allItems.set(item.item_name, item);
+        }
       });
     });
-    const combinedItemData = { item_equipment: Array.from(allItems.values()) };
+
+    const finalItemData = {
+      item_equipment: Array.from(allItems.values()),
+      // 상세 페이지가 참고할 수 있도록, 최고 점수 프리셋의 다른 정보도 추가
+      preset_no: bestPresetInfo.presetNo,
+    };
+
+    const currentStatData =
+      presetStats[bestPresetInfo.presetNo - 1] || presetStats[0] || {};
 
     response.setHeader("Cache-Control", "s-maxage=1, stale-while-revalidate");
     response.status(200).json({
       basicData,
       statData: { ...currentStatData, max_combat_power: maxCombatPower },
-      itemData: combinedItemData,
+      itemData: finalItemData, // ✨ 'itemData'라는 이름으로 통일해서 전달
       data_date: basicData.date,
     });
   } catch (error) {
@@ -180,9 +175,11 @@ export default async function handler(request, response) {
       `[${request.query.characterName}] 서버리스 함수 오류:`,
       error
     );
-    response.status(500).json({
-      error: "서버에서 요청을 처리하는 중 오류가 발생했습니다.",
-      details: error.message,
-    });
+    response
+      .status(500)
+      .json({
+        error: "서버에서 요청을 처리하는 중 오류가 발생했습니다.",
+        details: error.message,
+      });
   }
 }
