@@ -44,36 +44,15 @@ export default async function handler(request, response) {
     const ocid = ocidData.ocid;
 
     const results = await Promise.allSettled([
-      nexonApiRequest(`/maplestory/v1/character/basic?ocid=${ocid}`, apiKey),
-      nexonApiRequest(
-        `/maplestory/v1/character/hyper-stat?ocid=${ocid}`,
-        apiKey
-      ),
-      nexonApiRequest(`/maplestory/v1/character/ability?ocid=${ocid}`, apiKey),
-      nexonApiRequest(
-        `/maplestory/v1/character/stat?ocid=${ocid}&preset_no=1`,
-        apiKey
-      ),
-      nexonApiRequest(
-        `/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=1`,
-        apiKey
-      ),
-      nexonApiRequest(
-        `/maplestory/v1/character/stat?ocid=${ocid}&preset_no=2`,
-        apiKey
-      ),
-      nexonApiRequest(
-        `/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=2`,
-        apiKey
-      ),
-      nexonApiRequest(
-        `/maplestory/v1/character/stat?ocid=${ocid}&preset_no=3`,
-        apiKey
-      ),
-      nexonApiRequest(
-        `/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=3`,
-        apiKey
-      ),
+      nexonApiRequest(`/maplestory/v1/character/basic?ocid=${ocid}`),
+      nexonApiRequest(`/maplestory/v1/character/hyper-stat?ocid=${ocid}`),
+      nexonApiRequest(`/maplestory/v1/character/ability?ocid=${ocid}`),
+      nexonApiRequest(`/maplestory/v1/character/stat?ocid=${ocid}&preset_no=1`),
+      nexonApiRequest(`/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=1`),
+      nexonApiRequest(`/maplestory/v1/character/stat?ocid=${ocid}&preset_no=2`),
+      nexonApiRequest(`/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=2`),
+      nexonApiRequest(`/maplestory/v1/character/stat?ocid=${ocid}&preset_no=3`),
+      nexonApiRequest(`/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=3`),
     ]);
 
     const getValue = (result) =>
@@ -109,9 +88,7 @@ export default async function handler(request, response) {
         ? parseInt(combatPowerStat.stat_value, 10)
         : 0;
 
-      // ✨ [핵심 수정] stats와 items, 그리고 그 안의 데이터가 모두 유효할 때만 점수를 계산합니다.
       if (stats && items && items.item_equipment) {
-        // 어빌리티 점수
         abilityData?.ability_info?.forEach((ability) => {
           if (ability.ability_value.includes("보스 몬스터 공격 시 데미지"))
             score += 10;
@@ -122,7 +99,6 @@ export default async function handler(request, response) {
             score -= 10;
         });
 
-        // 하이퍼스탯 점수
         const hyperStatPreset =
           hyperStatData?.[`hyper_stat_preset_${presetNo}`];
         if (hyperStatPreset) {
@@ -132,7 +108,6 @@ export default async function handler(request, response) {
           if (hyperStatIED && parseInt(hyperStatIED.stat_level) > 0) score += 5;
         }
 
-        // 아이템 점수
         const hasSeedRing = items.item_equipment.some(
           (item) =>
             item.item_name.includes("링") && !item.item_name.includes("어비스")
@@ -152,10 +127,13 @@ export default async function handler(request, response) {
       return b.combatPower - a.combatPower;
     });
 
-    const bestPreset = presetScores[0];
-    const maxCombatPower = bestPreset.combatPower;
+    const bestPresetInfo = presetScores[0];
+    const bestPresetStatData =
+      presetStats[bestPresetInfo.presetNo - 1] || presetStats[0] || {};
 
-    const currentStatData = presetStats[0] || {};
+    // ✨ [핵심 수정] 최고 전투력을 '최고 점수 프리셋'의 전투력으로 확정
+    const maxCombatPower = bestPresetInfo.combatPower;
+
     const allItems = new Map();
     presetItems.forEach((itemSet) => {
       itemSet?.item_equipment?.forEach((item) => {
@@ -167,7 +145,7 @@ export default async function handler(request, response) {
     response.setHeader("Cache-Control", "s-maxage=1, stale-while-revalidate");
     response.status(200).json({
       basicData,
-      statData: { ...currentStatData, max_combat_power: maxCombatPower },
+      statData: { ...bestPresetStatData, max_combat_power: maxCombatPower },
       itemData: combinedItemData,
       data_date: basicData.date,
     });
