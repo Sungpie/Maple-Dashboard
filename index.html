@@ -11,8 +11,6 @@
     <div id="result"></div>
 
     <script>
-      // 이제 config.js는 필요 없습니다.
-
       window.onload = function () {
         const characterNames = ["렌해바요", "옥길동렌", "렌깡떵", "랜선뽑은렌"];
         getAllCharacterInfo(characterNames);
@@ -22,7 +20,6 @@
         return new Promise((resolve) => setTimeout(resolve, ms));
       }
 
-      // '비서'에게 정보를 요청하는 함수 (수정 불필요)
       async function getCharacterInfo(characterName) {
         const response = await fetch(
           `/api/get-character-info?characterName=${encodeURIComponent(
@@ -30,64 +27,51 @@
           )}`
         );
         if (!response.ok) {
-          const errorData = await response
-            .json()
-            .catch(() => ({ error: "서버 응답 파싱 실패" }));
           console.error(
             `[${characterName}] 정보 조회 실패:`,
-            errorData.details || response.statusText
+            await response.text()
           );
           return { error: `'${characterName}' 님의 정보 조회에 실패했습니다.` };
         }
         return await response.json();
       }
 
-      // ✨ [핵심 수정] 캐릭터 정보를 받아와서 정렬하고 그리는 메인 로직
       async function getAllCharacterInfo(names) {
         const resultDiv = document.getElementById("result");
         resultDiv.innerHTML =
           "<p>모든 원정대원의 최고 전투력을 계산하는 중입니다... 잠시만 기다려주세요!</p>";
 
         const charactersData = [];
+        const promises = names.map((name) => getCharacterInfo(name));
+        const results = await Promise.allSettled(promises);
 
-        for (const name of names) {
-          // Vercel 서버리스 함수는 동시에 여러 요청을 보내도 잘 처리하므로,
-          // 개별 sleep 대신 Promise.all로 한 번에 처리하는 것이 더 빠를 수 있습니다.
-          // 하지만 넥슨 API 요청 제한을 확실하게 피하기 위해 순차적으로 호출하는 현재 구조를 유지합니다.
-          await sleep(300); // API 요청 간격을 약간 조정
-          const info = await getCharacterInfo(name);
+        for (const result of results) {
+          if (result.status === "fulfilled" && !result.value.error) {
+            const info = result.value;
+            if (info.basicData && info.statData) {
+              const currentCombatPowerStat = info.statData.final_stat?.find(
+                (s) => s.stat_name === "전투력"
+              );
+              const currentCombatPower = currentCombatPowerStat
+                ? parseInt(currentCombatPowerStat.stat_value)
+                : 0;
+              const maxCombatPower = info.statData.max_combat_power || 0;
 
-          if (info.error) {
-            console.error(info.error);
-            continue; // 에러 발생 시 다음 캐릭터로 넘어감
-          }
-
-          // ✨ 비서가 보내준 데이터 구조에 맞게 수정
-          if (
-            info.basicData &&
-            info.basicData.character_name &&
-            info.statData
-          ) {
-            // 1. 현재 전투력 추출
-            const currentCombatPowerStat = info.statData.final_stat?.find(
-              (s) => s.stat_name === "전투력"
+              charactersData.push({
+                ...info.basicData,
+                currentCombatPower: currentCombatPower,
+                maxCombatPower:
+                  maxCombatPower > 0 ? maxCombatPower : currentCombatPower,
+              });
+            }
+          } else {
+            console.error(
+              "캐릭터 정보 로딩 실패:",
+              result.reason || result.value.error
             );
-            const currentCombatPower = currentCombatPowerStat
-              ? parseInt(currentCombatPowerStat.stat_value)
-              : 0;
-
-            // 2. ✨ 최고 전투력 추출 (비서가 계산해준 값!)
-            const maxCombatPower = info.statData.max_combat_power || 0;
-
-            charactersData.push({
-              ...info.basicData,
-              currentCombatPower: currentCombatPower, // 화면에 표시할 현재 전투력
-              maxCombatPower: maxCombatPower, // 정렬 기준으로 사용할 최고 전투력
-            });
           }
         }
 
-        // 3. ✨ 최고 전투력(maxCombatPower) 기준으로 내림차순 정렬!
         charactersData.sort((a, b) => b.maxCombatPower - a.maxCombatPower);
 
         let finalHtml = "";
@@ -96,7 +80,7 @@
             "<p>캐릭터 정보를 불러오지 못했습니다. API 키 또는 서버 상태를 확인해주세요.</p>";
         } else {
           for (const char of charactersData) {
-            // 4. 화면에는 현재 전투력을 표시하지만, 정렬은 최고 전투력 기준으로!
+            // ✨ [핵심 수정] 화면에 최고 전투력을 표시하도록 변경
             finalHtml += `
                   <a href="detail.html?characterName=${
                     char.character_name
@@ -112,8 +96,8 @@
               char.character_class
             }</p>
                         <p><strong>서버:</strong> ${char.world_name}</p>
-                        <p><strong>전투력:</strong> ${char.currentCombatPower.toLocaleString()}</p>
-                        </div>
+                        <p><strong>최고 전투력:</strong> ${char.maxCombatPower.toLocaleString()}</p>
+                    </div>
                   </a>
                 `;
           }

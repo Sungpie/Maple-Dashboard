@@ -14,19 +14,18 @@ function nexonApiRequest(path, apiKey) {
       res.on("data", (chunk) => (data += chunk));
       res.on("end", () => {
         try {
-          // 성공적으로 JSON 파싱이 되면 데이터를, 아니면 null을 반환
           resolve(JSON.parse(data));
         } catch (e) {
-          resolve(null);
+          resolve(null); // JSON 파싱 실패 시 null 반환
         }
       });
     });
-    req.on("error", () => resolve(null));
+    req.on("error", () => resolve(null)); // 네트워크 에러 시 null 반환
     req.end();
   });
 }
 
-// 우리의 '비서' 프로그램 메인 로직
+// 메인 로직 핸들러
 export default async function handler(request, response) {
   try {
     const characterName = request.query.characterName;
@@ -55,8 +54,8 @@ export default async function handler(request, response) {
     }
     const ocid = ocidData.ocid;
 
-    // ✨ [핵심 수정] 2. 각 프리셋의 '스탯'과 '장비' 정보를 모두 요청
-    const promises = [
+    // 2. 필요한 모든 정보를 안전하게 동시에 요청
+    const results = await Promise.allSettled([
       nexonApiRequest(
         `/maplestory/v1/character/basic?ocid=${ocid}&date=${dateString}`,
         apiKey
@@ -66,7 +65,7 @@ export default async function handler(request, response) {
         apiKey
       ), // 1: 프리셋 1 스탯
       nexonApiRequest(
-        `/maplestory/v1/character/item-equipment?ocid=${ocid}&date=${dateString}&preset_no=1`,
+        `/maplestory/v1/item-equipment?ocid=${ocid}&date=${dateString}&preset_no=1`,
         apiKey
       ), // 2: 프리셋 1 장비
       nexonApiRequest(
@@ -74,7 +73,7 @@ export default async function handler(request, response) {
         apiKey
       ), // 3: 프리셋 2 스탯
       nexonApiRequest(
-        `/maplestory/v1/character/item-equipment?ocid=${ocid}&date=${dateString}&preset_no=2`,
+        `/maplestory/v1/item-equipment?ocid=${ocid}&date=${dateString}&preset_no=2`,
         apiKey
       ), // 4: 프리셋 2 장비
       nexonApiRequest(
@@ -82,12 +81,10 @@ export default async function handler(request, response) {
         apiKey
       ), // 5: 프리셋 3 스탯
       nexonApiRequest(
-        `/maplestory/v1/character/item-equipment?ocid=${ocid}&date=${dateString}&preset_no=3`,
+        `/maplestory/v1/item-equipment?ocid=${ocid}&date=${dateString}&preset_no=3`,
         apiKey
       ), // 6: 프리셋 3 장비
-    ];
-
-    const results = await Promise.allSettled(promises);
+    ]);
 
     // 3. 성공한 요청에서만 데이터 추출
     const basicData =
@@ -107,7 +104,7 @@ export default async function handler(request, response) {
       throw new Error("캐릭터의 필수 기본 정보를 불러오지 못했습니다.");
     }
 
-    // 4. 유효한 모든 프리셋의 전투력 찾기
+    // 4. 유효한 모든 전투력 찾기
     const combatPowers = presetStats
       .map(
         (statData) =>
@@ -121,28 +118,24 @@ export default async function handler(request, response) {
     const maxCombatPower =
       combatPowers.length > 0 ? Math.max(...combatPowers) : 0;
 
-    // ✨ 6. 모든 프리셋의 아이템 정보를 하나로 합치기
+    // 6. 상세 페이지에 보여줄 전체 아이템 목록 생성 (중복 제거)
     const allItems = new Map();
     presetItems.forEach((itemSet) => {
       itemSet?.item_equipment?.forEach((item) => {
         if (!allItems.has(item.item_name)) {
-          // 중복 아이템은 제외
           allItems.set(item.item_name, item);
         }
       });
     });
 
-    // 현재 착용 장비는 1번 프리셋을 기준으로 함
-    const currentItemData = presetItems[0] || {};
-    currentItemData.item_equipment = Array.from(allItems.values()); // 합쳐진 전체 아이템 목록으로 교체
-
-    const currentStatData = presetStats[0] || {};
+    const combinedItemData = { item_equipment: Array.from(allItems.values()) };
+    const currentStatData = presetStats[0] || {}; // 현재 스탯은 1번 프리셋 기준
 
     // 7. 최종 정보 조합하여 전달
     response.status(200).json({
       basicData,
       statData: { ...currentStatData, max_combat_power: maxCombatPower },
-      itemData: currentItemData,
+      itemData: combinedItemData,
     });
   } catch (error) {
     console.error(
