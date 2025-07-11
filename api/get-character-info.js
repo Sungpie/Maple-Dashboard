@@ -43,8 +43,8 @@ export default async function handler(request, response) {
         .json({ error: "캐릭터 OCID를 찾을 수 없습니다." });
     const ocid = ocidData.ocid;
 
-    // ✨ [핵심 수정] 1. item-equipment는 한 번만 요청하고, 나머지는 병렬로 처리
-    const itemData = await nexonApiRequest(
+    // ✨ [핵심 수정] 1. item-equipment는 한 번만 요청하여 모든 프리셋 정보를 가져옵니다.
+    const itemDataResponse = await nexonApiRequest(
       `/maplestory/v1/item-equipment?ocid=${ocid}`,
       apiKey
     );
@@ -82,20 +82,20 @@ export default async function handler(request, response) {
       getValue(otherResults[5]),
     ];
 
-    if (!basicData || !itemData)
+    if (!basicData || !itemDataResponse)
       throw new Error("캐릭터의 필수 기본/장비 정보를 불러오지 못했습니다.");
 
-    // ✨ 2. 한 번의 응답에서 각 프리셋 아이템 목록을 추출
+    // ✨ 2. 한 번의 응답에서 각 프리셋 아이템 목록을 추출합니다.
     const presetItems = [
-      itemData.item_equipment_preset_1,
-      itemData.item_equipment_preset_2,
-      itemData.item_equipment_preset_3,
+      itemDataResponse.item_equipment_preset_1,
+      itemDataResponse.item_equipment_preset_2,
+      itemDataResponse.item_equipment_preset_3,
     ];
 
     const presetScores = [1, 2, 3].map((presetNo) => {
       const index = presetNo - 1;
       const stats = presetStats[index];
-      const items = presetItems[index]; // 이제 items는 장비 목록 배열임
+      const items = presetItems[index];
       let score = 0;
 
       const combatPowerStat = stats?.final_stat?.find(
@@ -106,7 +106,6 @@ export default async function handler(request, response) {
         : 0;
 
       if (stats && items) {
-        // ✨ items가 배열이므로 item_equipment 속성 체크는 불필요
         abilityData?.ability_info?.forEach((ability) => {
           if (ability.ability_value.includes("보스 몬스터 공격 시 데미지"))
             score += 10;
@@ -116,6 +115,7 @@ export default async function handler(request, response) {
           )
             score -= 10;
         });
+
         const hyperStatPreset =
           hyperStatData?.[`hyper_stat_preset_${presetNo}`];
         if (hyperStatPreset) {
@@ -124,6 +124,7 @@ export default async function handler(request, response) {
           );
           if (hyperStatIED && parseInt(hyperStatIED.stat_level) > 0) score += 5;
         }
+
         const hasSeedRing = items.some(
           (item) =>
             item.item_name.includes("링") && !item.item_name.includes("어비스")
@@ -147,7 +148,7 @@ export default async function handler(request, response) {
     response.status(200).json({
       basicData,
       statData: { ...currentStatData, max_combat_power: maxCombatPower },
-      itemData: itemData, // ✨ 모든 프리셋 정보가 담긴 itemData를 그대로 전달
+      itemData: itemDataResponse, // ✨ 모든 프리셋 정보가 담긴 itemData를 그대로 전달
       data_date: basicData.date,
     });
   } catch (error) {
