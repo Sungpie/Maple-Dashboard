@@ -25,7 +25,9 @@
       // '비서'에게 정보를 요청하는 함수 (수정 불필요)
       async function getCharacterInfo(characterName) {
         const response = await fetch(
-          `/api/get-character-info?characterName=${characterName}`
+          `/api/get-character-info?characterName=${encodeURIComponent(
+            characterName
+          )}`
         );
         if (!response.ok) {
           const errorData = await response
@@ -51,7 +53,7 @@
         for (const name of names) {
           // Vercel 서버리스 함수는 동시에 여러 요청을 보내도 잘 처리하므로,
           // 개별 sleep 대신 Promise.all로 한 번에 처리하는 것이 더 빠를 수 있습니다.
-          // 하지만 API 요청 제한을 피하기 위해 순차적으로 호출하는 현재 구조를 유지합니다.
+          // 하지만 넥슨 API 요청 제한을 확실하게 피하기 위해 순차적으로 호출하는 현재 구조를 유지합니다.
           await sleep(300); // API 요청 간격을 약간 조정
           const info = await getCharacterInfo(name);
 
@@ -60,7 +62,7 @@
             continue; // 에러 발생 시 다음 캐릭터로 넘어감
           }
 
-          // 비서가 보내준 데이터 구조에 맞게 수정
+          // ✨ 비서가 보내준 데이터 구조에 맞게 수정
           if (
             info.basicData &&
             info.basicData.character_name &&
@@ -74,7 +76,7 @@
               ? parseInt(currentCombatPowerStat.stat_value)
               : 0;
 
-            // 2. 최고 전투력 추출 (비서가 계산해준 값)
+            // 2. ✨ 최고 전투력 추출 (비서가 계산해준 값!)
             const maxCombatPower = info.statData.max_combat_power || 0;
 
             charactersData.push({
