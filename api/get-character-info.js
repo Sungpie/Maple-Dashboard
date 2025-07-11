@@ -1,6 +1,6 @@
 const https = require("https");
 
-// 넥슨 서버에 안전하게 데이터를 요청하는 함수 (이전과 동일)
+// 넥슨 서버에 안전하게 데이터를 요청하는 함수
 function nexonApiRequest(path, apiKey) {
   return new Promise((resolve, reject) => {
     const options = {
@@ -10,18 +10,19 @@ function nexonApiRequest(path, apiKey) {
       headers: { "x-nxopen-api-key": apiKey },
     };
     const req = https.request(options, (res) => {
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        return reject(
-          new Error(`Nexon API Error: Status Code ${res.statusCode}`)
-        );
-      }
+      // 넥슨 API가 에러 코드를 보내도 일단 데이터를 받기 위해 에러 처리는 잠시 보류
       let data = "";
       res.on("data", (chunk) => (data += chunk));
-      res.on("end", () => resolve(JSON.parse(data)));
+      res.on("end", () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          // 응답이 JSON이 아닐 경우 null을 반환하여 Promise.allSettled가 멈추지 않도록 함
+          resolve(null);
+        }
+      });
     });
-    req.on("error", (e) =>
-      reject(new Error(`Network request failed: ${e.message}`))
-    );
+    req.on("error", (e) => resolve(null)); // 네트워크 에러 발생 시에도 null 반환
     req.end();
   });
 }
@@ -43,53 +44,72 @@ export default async function handler(request, response) {
     yesterday.setDate(yesterday.getDate() - 1);
     const dateString = yesterday.toISOString().split("T")[0];
 
-    // 1. OCID 조회
+    // 1. OCID 조회 (이 요청은 반드시 성공해야 함)
     const ocidData = await nexonApiRequest(
       `/maplestory/v1/id?character_name=${encodeURIComponent(characterName)}`,
       apiKey
     );
-    const ocid = ocidData.ocid;
-    if (!ocid) {
-      return response.status(404).json({ error: "캐릭터를 찾을 수 없습니다." });
+    if (!ocidData || ocidData.error) {
+      return response
+        .status(404)
+        .json({ error: "캐릭터 OCID를 찾을 수 없습니다." });
     }
+    const ocid = ocidData.ocid;
 
-    // ✨ [핵심 로직] 2. 프리셋별 능력치 정보를 동시에 요청 (최대 3개 프리셋)
-    const presetStatPromises = [
+    // ✨ [핵심 수정] 2. 여러 API 요청을 'allSettled'로 안전하게 동시에 처리
+    const results = await Promise.allSettled([
+      nexonApiRequest(
+        `/maplestory/v1/character/stat?ocid=${ocid}&date=${dateString}`,
+        apiKey
+      ), // 0: 현재 스탯
       nexonApiRequest(
         `/maplestory/v1/character/stat?ocid=${ocid}&date=${dateString}&preset_no=1`,
         apiKey
-      ),
+      ), // 1: 프리셋 1 스탯
       nexonApiRequest(
         `/maplestory/v1/character/stat?ocid=${ocid}&date=${dateString}&preset_no=2`,
         apiKey
-      ),
+      ), // 2: 프리셋 2 스탯
       nexonApiRequest(
         `/maplestory/v1/character/stat?ocid=${ocid}&date=${dateString}&preset_no=3`,
         apiKey
-      ),
-    ];
+      ), // 3: 프리셋 3 스탯
+      nexonApiRequest(
+        `/maplestory/v1/character/basic?ocid=${ocid}&date=${dateString}`,
+        apiKey
+      ), // 4: 기본 정보
+      nexonApiRequest(
+        `/maplestory/v1/character/item-equipment?ocid=${ocid}&date=${dateString}`,
+        apiKey
+      ), // 5: 현재 장비
+    ]);
 
-    // 현재 착용 장비 정보와 기본 정보도 함께 요청
-    const itemDataPromise = nexonApiRequest(
-      `/maplestory/v1/character/item-equipment?ocid=${ocid}&date=${dateString}`,
-      apiKey
-    );
-    const basicDataPromise = nexonApiRequest(
-      `/maplestory/v1/character/basic?ocid=${ocid}&date=${dateString}`,
-      apiKey
-    );
+    // 3. 성공한 요청에서만 데이터 추출
+    const currentStatData =
+      results[0].status === "fulfilled" ? results[0].value : null;
+    const preset1Stat =
+      results[1].status === "fulfilled" ? results[1].value : null;
+    const preset2Stat =
+      results[2].status === "fulfilled" ? results[2].value : null;
+    const preset3Stat =
+      results[3].status === "fulfilled" ? results[3].value : null;
+    const basicData =
+      results[4].status === "fulfilled" ? results[4].value : null;
+    const itemData =
+      results[5].status === "fulfilled" ? results[5].value : null;
 
-    // ✨ 3. 모든 프리셋의 스탯 정보와 기타 정보를 한꺼번에 받음
-    const [preset1Stat, preset2Stat, preset3Stat, itemData, basicData] =
-      await Promise.all([
-        ...presetStatPromises,
-        itemDataPromise,
-        basicDataPromise,
-      ]);
+    if (!basicData || !currentStatData) {
+      throw new Error("캐릭터의 필수 정보(기본/스탯)를 불러오지 못했습니다.");
+    }
 
-    // ✨ 4. 각 프리셋의 전투력을 찾아 배열에 담기
-    const combatPowers = [preset1Stat, preset2Stat, preset3Stat].map(
-      (statData) => {
+    // 4. 유효한 모든 프리셋의 전투력을 찾아 배열에 담기
+    const combatPowers = [
+      currentStatData,
+      preset1Stat,
+      preset2Stat,
+      preset3Stat,
+    ]
+      .map((statData) => {
         if (statData && statData.final_stat) {
           const powerStat = statData.final_stat.find(
             (s) => s.stat_name === "전투력"
@@ -97,17 +117,12 @@ export default async function handler(request, response) {
           return powerStat ? parseInt(powerStat.stat_value) : 0;
         }
         return 0;
-      }
-    );
+      })
+      .filter((power) => power > 0); // 0인 값은 제외
 
-    // ✨ 5. 가장 높은 전투력을 '최고 전투력'으로 확정
-    const maxCombatPower = Math.max(...combatPowers);
-
-    // 현재 장착 프리셋의 능력치 정보 (보여주기용)
-    const currentStatData = await nexonApiRequest(
-      `/maplestory/v1/character/stat?ocid=${ocid}&date=${dateString}`,
-      apiKey
-    );
+    // 5. 가장 높은 전투력을 '최고 전투력'으로 확정
+    const maxCombatPower =
+      combatPowers.length > 0 ? Math.max(...combatPowers) : 0;
 
     // 6. 최종적으로 모든 정보를 합쳐서 클라이언트에게 전달
     response.status(200).json({
