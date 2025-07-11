@@ -1,5 +1,6 @@
 const https = require("https");
 
+// 넥슨 서버에 안전하게 데이터를 요청하는 함수
 function nexonApiRequest(path, apiKey) {
   return new Promise((resolve) => {
     const options = {
@@ -24,6 +25,7 @@ function nexonApiRequest(path, apiKey) {
   });
 }
 
+// 메인 로직 핸들러
 export default async function handler(request, response) {
   try {
     const characterName = request.query.characterName;
@@ -36,12 +38,7 @@ export default async function handler(request, response) {
       throw new Error("API 키가 서버에 설정되지 않았습니다.");
     }
 
-    const now = new Date();
-    const kstOffset = 9 * 60 * 60 * 1000;
-    const kstNow = new Date(now.getTime() + kstOffset);
-    kstNow.setDate(kstNow.getDate() - 1);
-    const dateString = kstNow.toISOString().split("T")[0];
-
+    // 1. OCID 조회 (date 파라미터 불필요)
     const ocidData = await nexonApiRequest(
       `/maplestory/v1/id?character_name=${encodeURIComponent(characterName)}`,
       apiKey
@@ -53,33 +50,31 @@ export default async function handler(request, response) {
     }
     const ocid = ocidData.ocid;
 
+    // ✨ [핵심 수정] 2. date 파라미터 없이 API 요청
     const results = await Promise.allSettled([
+      nexonApiRequest(`/maplestory/v1/character/basic?ocid=${ocid}`, apiKey),
       nexonApiRequest(
-        `/maplestory/v1/character/basic?ocid=${ocid}&date=${dateString}`,
+        `/maplestory/v1/character/stat?ocid=${ocid}&preset_no=1`,
         apiKey
       ),
       nexonApiRequest(
-        `/maplestory/v1/character/stat?ocid=${ocid}&date=${dateString}&preset_no=1`,
+        `/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=1`,
         apiKey
       ),
       nexonApiRequest(
-        `/maplestory/v1/item-equipment?ocid=${ocid}&date=${dateString}&preset_no=1`,
+        `/maplestory/v1/character/stat?ocid=${ocid}&preset_no=2`,
         apiKey
       ),
       nexonApiRequest(
-        `/maplestory/v1/character/stat?ocid=${ocid}&date=${dateString}&preset_no=2`,
+        `/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=2`,
         apiKey
       ),
       nexonApiRequest(
-        `/maplestory/v1/item-equipment?ocid=${ocid}&date=${dateString}&preset_no=2`,
+        `/maplestory/v1/character/stat?ocid=${ocid}&preset_no=3`,
         apiKey
       ),
       nexonApiRequest(
-        `/maplestory/v1/character/stat?ocid=${ocid}&date=${dateString}&preset_no=3`,
-        apiKey
-      ),
-      nexonApiRequest(
-        `/maplestory/v1/item-equipment?ocid=${ocid}&date=${dateString}&preset_no=3`,
+        `/maplestory/v1/item-equipment?ocid=${ocid}&preset_no=3`,
         apiKey
       ),
     ]);
@@ -103,6 +98,7 @@ export default async function handler(request, response) {
       throw new Error("캐릭터의 필수 기본 정보를 불러오지 못했습니다.");
     }
 
+    // 3. 유효한 모든 전투력 찾기
     const combatPowers = presetStats
       .filter((stat) => stat && stat.final_stat)
       .map((statData) => {
@@ -113,9 +109,11 @@ export default async function handler(request, response) {
       })
       .filter((power) => power > 0);
 
+    // 4. 가장 높은 전투력 확정
     const maxCombatPower =
       combatPowers.length > 0 ? Math.max(...combatPowers) : 0;
 
+    // 5. 전체 아이템 목록 생성
     const allItems = new Map();
     presetItems.forEach((itemSet) => {
       itemSet?.item_equipment?.forEach((item) => {
@@ -126,19 +124,16 @@ export default async function handler(request, response) {
     });
 
     const combinedItemData = { item_equipment: Array.from(allItems.values()) };
-    const currentStatData = presetStats[0];
+    const currentStatData = presetStats[0]; // 1번 프리셋을 현재 스탯으로 간주
 
-    // Vercel의 모든 캐시를 무력화하는 가장 강력한 헤더
-    response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    response.setHeader("Pragma", "no-cache");
-    response.setHeader("Expires", "0");
+    // 6. Vercel 캐시 제어 헤더 설정
+    response.setHeader("Cache-Control", "s-maxage=1, stale-while-revalidate");
 
     response.status(200).json({
       basicData,
       statData: { ...currentStatData, max_combat_power: maxCombatPower },
       itemData: combinedItemData,
-      // ✨ [핵심 수정] 데이터 기준일을 함께 전달
-      data_date: dateString,
+      data_date: basicData.date, // ✨ basicData에 포함된 최신 데이터 기준일을 사용
     });
   } catch (error) {
     console.error(

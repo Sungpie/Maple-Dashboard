@@ -8,6 +8,7 @@
   <body>
     <h1>우리만의 메이플</h1>
     <hr />
+    <div class="data-date-info" id="data-date-container"></div>
     <div id="result"></div>
 
     <script>
@@ -35,12 +36,15 @@
 
       async function getAllCharacterInfo(names) {
         const resultDiv = document.getElementById("result");
+        const dateContainer = document.getElementById("data-date-container");
         resultDiv.innerHTML =
-          "<p>모든 원정대원의 최고 전투력을 계산하는 중입니다... 잠시만 기다려주세요!</p>";
+          "<p>모든 원정대원의 최신 정보를 조회하고, 최고 전투력을 계산하는 중입니다...</p>";
 
         const charactersData = [];
         const promises = names.map((name) => getCharacterInfo(name));
         const results = await Promise.allSettled(promises);
+
+        let latestDataDate = "";
 
         for (const result of results) {
           if (
@@ -51,12 +55,11 @@
             const info = result.value;
             if (info.basicData && info.statData) {
               const maxCombatPower = info.statData.max_combat_power || 0;
+              if (info.data_date) latestDataDate = info.data_date.split("T")[0]; // 날짜만 추출
 
               charactersData.push({
                 ...info.basicData,
                 maxCombatPower: maxCombatPower,
-                // ✨ 데이터 기준일 정보 저장
-                dataDate: info.data_date,
               });
             }
           } else {
@@ -70,13 +73,16 @@
 
         charactersData.sort((a, b) => b.maxCombatPower - a.maxCombatPower);
 
+        if (latestDataDate) {
+          dateContainer.innerText = `* 정보 기준일: ${latestDataDate} (데이터는 약 15분마다 갱신될 수 있습니다.)`;
+        }
+
         let finalHtml = "";
         if (charactersData.length === 0) {
           finalHtml =
             "<p>캐릭터 정보를 불러오지 못했습니다. API 키 또는 서버 상태를 확인해주세요.</p>";
         } else {
           for (const char of charactersData) {
-            // ✨ [핵심 수정] 전투력 옆에 데이터 기준일을 함께 표시
             finalHtml += `
                   <a href="detail.html?characterName=${
                     char.character_name
@@ -92,9 +98,7 @@
               char.character_class
             }</p>
                         <p><strong>서버:</strong> ${char.world_name}</p>
-                        <p><strong>최고 전투력:</strong> ${char.maxCombatPower.toLocaleString()} <span style="font-size: 11px; color: #888;">(${
-              char.dataDate
-            } 기준)</span></p>
+                        <p><strong>최고 전투력:</strong> ${char.maxCombatPower.toLocaleString()}</p>
                     </div>
                   </a>
                 `;
